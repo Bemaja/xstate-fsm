@@ -1,0 +1,16 @@
+name: xstate_fsm
+version: 0.0.1
+description: >
+  A shameless copy of the Typescript package xstate-fsm
+  (https://github.com/davidkpiano/xstate/tree/master/packages/xstate-fsm)
+homepage: https://github.com/Bemaja/xstate-fsm
+
+dependencies:
+  equatable: ^1.1.1
+
+dev_dependencies:
+  test: ^1.14.0
+
+environment:
+  sdk: ">=2.1.0 <3.0.0"
+
