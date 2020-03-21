@@ -80,8 +80,26 @@ class GuardMatches<C, E> extends Guard<C, E> {
 class GuardMap<C, E> {}
 
 //***********************************************
-// CONTEXT
+// STATE / EVENT / CONTEXT
 //***********************************************
+
+class State<C, E> {
+  String value;
+  List<Action<C, E>> actions = [];
+  C context;
+  bool changed;
+  StateMatcher matches;
+
+  State(this.value,
+      {this.actions, this.context = null, this.changed = false, this.matches});
+}
+
+class Event<E> {
+  final String type;
+  final E event;
+
+  const Event(this.type, {this.event});
+}
 
 abstract class ContextFactory<C> {
   C fromMap(Map<String, dynamic> map);
@@ -262,26 +280,8 @@ StateMatcher createStateMatcher(String value) {
   return (String stateValue) => stateValue == value;
 }
 
-class State<C, E> {
-  String value;
-  List<Action<C, E>> actions = [];
-  C context;
-  bool changed;
-  StateMatcher matches;
-
-  State(this.value,
-      {this.actions, this.context = null, this.changed = false, this.matches});
-}
-
-class Event<E> {
-  final String type;
-  final E event;
-
-  const Event(this.type, {this.event});
-}
-
 class Machine<C, E> {
-  Config<C, E> config;
+  final Config<C, E> config;
 
   final Map<String, Action<C, E>> actions;
   final Map<String, ActionExecute<C, E>> executions;
@@ -291,22 +291,21 @@ class Machine<C, E> {
 
   final ContextFactory<C> contextFactory;
 
-  Machine(
+  const Machine(
       {this.config,
+      this.contextFactory,
       this.actions = const {},
       this.executions = const {},
       this.assignments = const {},
-      this.guards = const {},
-      this.contextFactory});
+      this.guards = const {}});
 
-  Machine.fromMap(Map<String, dynamic> config, Machine<C, E> machine)
-      : this.actions = machine.actions,
-        this.executions = machine.executions,
-        this.assignments = machine.assignments,
-        this.contextFactory = machine.contextFactory,
-        this.guards = machine.guards {
-    this.config = Config<C, E>.fromConfig(config, machine: this);
-  }
+  Machine<C, E> configure(Map<String, dynamic> config) => Machine<C, E>(
+      config: Config<C, E>.fromConfig(config, machine: this),
+      actions: actions,
+      executions: executions,
+      assignments: assignments,
+      guards: guards,
+      contextFactory: contextFactory);
 
   Machine<C, E> action(String action) => Machine<C, E>(
       config: config,

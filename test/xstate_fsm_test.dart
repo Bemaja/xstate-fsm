@@ -93,8 +93,7 @@ void main() {
     }
   };
 
-  var lightFSM = Machine<LightContext, LightEvent>.fromMap(
-      lightConfig,
+  var lightFSM =
       Machine<LightContext, LightEvent>(contextFactory: LightContextFactory())
           .action("enterGreen")
           .action("exitGreen")
@@ -127,7 +126,8 @@ void main() {
           .guard(
               "y-g 1",
               (LightContext c, Event<LightEvent> e) =>
-                  c.count + e.event.value == 2));
+                  c.count + e.event.value == 2)
+          .configure(lightConfig);
 
   group('Machine', () {
     test('should return back the config object', () {
@@ -235,7 +235,7 @@ void main() {
   });
 
   group('Interpreter', () {
-    Map<String, dynamic> toggleConfig = {
+    var toggleMachine = Machine().configure({
       "initial": "active",
       "states": {
         "active": {
@@ -245,9 +245,7 @@ void main() {
         },
         "inactive": {},
       }
-    };
-
-    var toggleMachine = Machine.fromMap(toggleConfig, Machine());
+    });
 
     test('listeners should immediately get the initial state', () {
       var toggleService = Interpreter(toggleMachine).start();
@@ -291,11 +289,9 @@ void main() {
       }
     };
 
-    var actionMachine = Machine.fromMap(
-        actionConfig,
-        Machine().execution("action", (context, event) {
-          executed = true;
-        }));
+    var actionMachine = Machine().execution("action", (context, event) {
+      executed = true;
+    }).configure(actionConfig);
 
     var actionService = Interpreter(actionMachine).start();
 
@@ -319,11 +315,9 @@ void main() {
       }
     };
 
-    var actionMachine = Machine.fromMap(
-        actionConfig,
-        Machine().execution("action", (context, event) {
-          executed = true;
-        }));
+    var actionMachine = Machine().execution("action", (context, event) {
+      executed = true;
+    }).configure(actionConfig);
 
     Interpreter(actionMachine).start();
 
