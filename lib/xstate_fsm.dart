@@ -151,7 +151,7 @@ abstract class ContextFactory<C> {
 // MAIN
 //***********************************************
 
-class ConfigTransition<C, E, S> {
+class ConfigTransition<C, E> {
   String target;
   List<Action<C, E>> actions;
   Guard<C, E> condition;
@@ -176,9 +176,9 @@ class ConfigTransition<C, E, S> {
     return condition != null && !condition.matches(context, event);
   }
 
-  State<C, E, S> transition(State<C, E, S> state, Event<E> event,
-      StateResolver<C, E, S> resolver, List<Action<C, E>> exits) {
-    ConfigState<C, E, S> targetState = resolver(target ?? state.value);
+  State<C, E> transition(State<C, E> state, Event<E> event,
+      StateResolver<C, E> resolver, List<Action<C, E>> exits) {
+    ConfigState<C, E> targetState = resolver(target ?? state.value);
 
     List<Action<C, E>> allActions =
         (exits ?? []) + (actions ?? []) + (targetState.entries ?? []);
@@ -204,9 +204,9 @@ class ConfigTransition<C, E, S> {
   }
 }
 
-class ConfigNoTransition<C, E, S> extends ConfigTransition<C, E, S> {
-  State<C, E, S> transition(State<C, E, S> state, Event<E> event,
-      StateResolver<C, E, S> resolver, List<Action<C, E>> exits) {
+class ConfigNoTransition<C, E> extends ConfigTransition<C, E> {
+  State<C, E> transition(State<C, E> state, Event<E> event,
+      StateResolver<C, E> resolver, List<Action<C, E>> exits) {
     return State(state.value,
         context: state.context,
         actions: [],
@@ -215,8 +215,8 @@ class ConfigNoTransition<C, E, S> extends ConfigTransition<C, E, S> {
   }
 }
 
-class ConfigTransitions<C, E, S> {
-  Map<String, List<ConfigTransition<C, E, S>>> transitions;
+class ConfigTransitions<C, E> {
+  Map<String, List<ConfigTransition<C, E>>> transitions;
 
   ConfigTransitions.fromConfig(Map<String, dynamic> transitions,
       ActionMap<C, E> actionMap, GuardMap<C, E> guardMap)
@@ -231,7 +231,7 @@ class ConfigTransitions<C, E, S> {
                             transition, actionMap, guardMap)
                       ]));
 
-  List<ConfigTransition<C, E, S>> getTransitionFor(Event<E> event) {
+  List<ConfigTransition<C, E>> getTransitionFor(Event<E> event) {
     if (!transitions.containsKey(event.type)) {
       return [ConfigNoTransition()];
     }
@@ -239,10 +239,10 @@ class ConfigTransitions<C, E, S> {
   }
 }
 
-class ConfigState<C, E, S> {
+class ConfigState<C, E> {
   List<Action<C, E>> entries;
   List<Action<C, E>> exits;
-  ConfigTransitions<C, E, S> transitions;
+  ConfigTransitions<C, E> transitions;
 
   ConfigState();
 
@@ -255,21 +255,21 @@ class ConfigState<C, E, S> {
         this.transitions = ConfigTransitions.fromConfig(
             state['on'] ?? {}, actionMap, guardMap);
 
-  State<C, E, S> transition(
-      State<C, E, S> state, Event<E> event, StateResolver<C, E, S> resolver) {
+  State<C, E> transition(
+      State<C, E> state, Event<E> event, StateResolver<C, E> resolver) {
     var matchingTransitions = transitions.getTransitionFor(event).skipWhile(
         (transition) => transition.doesNotMatch(state.context, event));
     return (matchingTransitions.isEmpty
-            ? ConfigNoTransition<C, E, S>()
+            ? ConfigNoTransition<C, E>()
             : matchingTransitions.first)
         .transition(state, event, resolver, exits);
   }
 }
 
-typedef StateResolver<C, E, S> = ConfigState<C, E, S> Function(String target);
+typedef StateResolver<C, E> = ConfigState<C, E> Function(String target);
 
-class ConfigStates<C, E, S> {
-  Map<String, ConfigState<C, E, S>> states;
+class ConfigStates<C, E> {
+  Map<String, ConfigState<C, E>> states;
   String id;
 
   ConfigStates(this.states);
@@ -279,7 +279,7 @@ class ConfigStates<C, E, S> {
       : this.states = states.map((String key, dynamic state) =>
             MapEntry(key, ConfigState.fromConfig(state, actionMap, guardMap)));
 
-  ConfigState<C, E, S> resolveTarget(String target) {
+  ConfigState<C, E> resolveTarget(String target) {
     if (!states.containsKey(target)) {
       assert(states.containsKey(target),
           "State ${target} not found on machine${id}.");
@@ -289,7 +289,7 @@ class ConfigStates<C, E, S> {
     }
   }
 
-  State<C, E, S> transition(State<C, E, S> state, Event<E> event) {
+  State<C, E> transition(State<C, E> state, Event<E> event) {
     if (!states.containsKey(state.value)) {
       assert(states.containsKey(state.value),
           "State ${state.value} not found on machine${id}.");
@@ -301,13 +301,13 @@ class ConfigStates<C, E, S> {
   }
 }
 
-class Config<C, E, S> {
+class Config<C, E> {
   String id;
   String initial;
   Map<String, dynamic> context;
-  ConfigStates<C, E, S> states;
+  ConfigStates<C, E> states;
 
-  Config.fromConfig(Map<String, dynamic> config, {Options<C, E, S> options})
+  Config.fromConfig(Map<String, dynamic> config, {Options<C, E> options})
       : this.initial = config['initial'] ?? '',
         this.id = config['id'] ?? '',
         this.context = config['context'] ?? {},
@@ -316,12 +316,12 @@ class Config<C, E, S> {
             guardMap: options != null ? options.guardMap : null,
             id: config['id'] ?? '');
 
-  State<C, E, S> transition(State<C, E, S> state, Event<E> event) {
+  State<C, E> transition(State<C, E> state, Event<E> event) {
     return states.transition(state, event);
   }
 }
 
-class Options<C, E, S> {
+class Options<C, E> {
   final ActionMap<C, E> actionMap = ActionMap<C, E>();
   final GuardMap<C, E> guardMap = GuardMap<C, E>();
   final ContextFactory<C> contextFactory;
@@ -335,7 +335,7 @@ StateMatcher createStateMatcher(String value) {
   return (String stateValue) => stateValue == value;
 }
 
-class State<C, E, S> {
+class State<C, E> {
   String value;
   List<Action<C, E>> actions = [];
   C context;
@@ -353,15 +353,15 @@ class Event<E> {
   const Event(this.type, {this.event});
 }
 
-class Machine<C, E, S> {
-  Config<C, E, S> config;
-  State<C, E, S> initialState;
-  Options<C, E, S> options = Options();
+class Machine<C, E> {
+  Config<C, E> config;
+  State<C, E> initialState;
+  Options<C, E> options = Options();
 
-  Machine(Config<C, E, S> this.config, {Options<C, E, S> this.options})
+  Machine(Config<C, E> this.config, {Options<C, E> this.options})
       : this.initialState = config.initial != null &&
                 config.states.states.containsKey(config.initial)
-            ? State<C, E, S>(config.initial,
+            ? State<C, E>(config.initial,
                 actions: config.states.states[config.initial].entries,
                 context: !config.context.isEmpty
                     ? options.contextFactory.fromMap(config.context)
@@ -369,17 +369,17 @@ class Machine<C, E, S> {
                 matches: (String stateValue) => stateValue == config.initial)
             : null;
 
-  State<C, E, S> transition(State<C, E, S> state, Event<E> event) {
+  State<C, E> transition(State<C, E> state, Event<E> event) {
     return config.transition(state, event);
   }
 
   /*
-  State<C, E, S> stateFromString(String state) {
+  State<C, E> stateFromString(String state) {
     return State(state, context: config.context);
   }
 
-  State<C, E, S> dynamicTransition(dynamic state, dynamic event) {
-    State<C, E, S> typedState;
+  State<C, E> dynamicTransition(dynamic state, dynamic event) {
+    State<C, E> typedState;
     Event<void> typedEvent;
 
     if (state is State) {
@@ -404,24 +404,23 @@ class Machine<C, E, S> {
   Action<C, E> operator [](String action) =>
       options.actionMap.getAction(action);
 
-  Machine<C, E, S> registerAction(String action) {
+  Machine<C, E> registerAction(String action) {
     options.actionMap.registerAction(action);
     return this;
   }
 
-  Machine<C, E, S> registerExecution(
-      String action, ActionExecution<C, E> exec) {
+  Machine<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
     options.actionMap.registerExecution(action, exec);
     return this;
   }
 
-  Machine<C, E, S> registerAssignment(
+  Machine<C, E> registerAssignment(
       String action, ActionAssignment<C, E> assignment) {
     options.actionMap.registerAssignment(action, assignment);
     return this;
   }
 
-  Machine<C, E, S> registerGuard(String name, GuardCondition<C, E> condition) {
+  Machine<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
     options.guardMap.registerGuard(name, condition);
     return this;
   }
@@ -429,21 +428,21 @@ class Machine<C, E, S> {
 
 enum InterpreterStatus { NotStarted, Running, Stopped }
 
-typedef StateListener<C, E, S> = Function(State<C, E, S> state);
+typedef StateListener<C, E> = Function(State<C, E> state);
 
-class Interpreter<C, E, S> {
+class Interpreter<C, E> {
   static const INIT_EVENT = Event('xstate.init');
 
-  final Machine<C, E, S> machine;
+  final Machine<C, E> machine;
   InterpreterStatus _status;
-  List<StateListener<C, E, S>> _listeners = [];
-  State<C, E, S> _currentState;
+  List<StateListener<C, E>> _listeners = [];
+  State<C, E> _currentState;
 
   Interpreter(this.machine)
       : _status = InterpreterStatus.NotStarted,
         _currentState = machine.initialState;
 
-  void _executeStateActions(State<C, E, S> state, Event<E> event) {
+  void _executeStateActions(State<C, E> state, Event<E> event) {
     for (Action<C, E> action in state.actions) {
       if (action is ActionExecute<C, E>) {
         action.execute(state.context, event);
@@ -460,20 +459,20 @@ class Interpreter<C, E, S> {
     _listeners.forEach((listener) => listener(_currentState));
   }
 
-  Map<String, Function()> subscribe(StateListener<C, E, S> listener) {
+  Map<String, Function()> subscribe(StateListener<C, E> listener) {
     _listeners.add(listener);
     listener(_currentState);
 
     return {"unsubscribe": () => _listeners.remove(listener)};
   }
 
-  Interpreter<C, E, S> start() {
+  Interpreter<C, E> start() {
     _status = InterpreterStatus.Running;
     _executeStateActions(_currentState, INIT_EVENT);
     return this;
   }
 
-  Interpreter<C, E, S> stop() {
+  Interpreter<C, E> stop() {
     _status = InterpreterStatus.Stopped;
     _listeners.clear();
     return this;

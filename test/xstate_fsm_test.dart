@@ -73,7 +73,7 @@ class LightState {}
 */
 
 void main() {
-  Options<LightContext, LightEvent, dynamic> options =
+  Options<LightContext, LightEvent> options =
       Options(contextFactory: LightContextFactory());
   options.actionMap.registerAction("enterGreen");
   options.actionMap.registerAction("exitGreen");
@@ -141,7 +141,7 @@ void main() {
       "red": {}
     }
   };
-  Config<LightContext, LightEvent, dynamic> config =
+  Config<LightContext, LightEvent> config =
       Config.fromConfig(lightConfig, options: options);
 
   var lightFSM = Machine(config, options: options);
@@ -163,7 +163,7 @@ void main() {
 
     test('should transition correctly', () {
       var nextState = lightFSM.transition(
-          State<LightContext, LightEvent, dynamic>('green',
+          State<LightContext, LightEvent>('green',
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('TIMER'));
       expect(nextState.value, equals('yellow'));
@@ -177,7 +177,7 @@ void main() {
 
     test('should stay on the same state for undefined transitions', () {
       var nextState = lightFSM.transition(
-          State<LightContext, LightEvent, dynamic>('green',
+          State<LightContext, LightEvent>('green',
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('FAKE'));
       expect(nextState.value, equals('green'));
@@ -266,7 +266,7 @@ void main() {
       }
     };
 
-    Config<dynamic, dynamic, dynamic> config = Config.fromConfig(toggleConfig);
+    Config<dynamic, dynamic> config = Config.fromConfig(toggleConfig);
 
     var toggleMachine = Machine(config);
 
@@ -312,11 +312,11 @@ void main() {
       }
     };
 
-    Options<dynamic, dynamic, dynamic> options = Options();
+    Options<dynamic, dynamic> options = Options();
     options.actionMap.registerExecution("action", (context, event) {
       executed = true;
     });
-    Config<dynamic, dynamic, dynamic> config =
+    Config<dynamic, dynamic> config =
         Config.fromConfig(actionConfig, options: options);
 
     var actionMachine = Machine(config, options: options);
@@ -343,11 +343,11 @@ void main() {
       }
     };
 
-    Options<dynamic, dynamic, dynamic> options = Options();
+    Options<dynamic, dynamic> options = Options();
     options.actionMap.registerExecution("action", (context, event) {
       executed = true;
     });
-    Config<dynamic, dynamic, dynamic> config =
+    Config<dynamic, dynamic> config =
         Config.fromConfig(actionConfig, options: options);
 
     var actionMachine = Machine(config, options: options);
