@@ -98,17 +98,29 @@ class ActionMap<C, E> {
 
 typedef GuardCondition<C, E> = bool Function(C context, Event<E> event);
 
-class Guard<C, E> {
+abstract class Guard<C, E> {
   final String type;
+
+  const Guard(String this.type);
+
+  matches(C context, Event<E> event);
+}
+
+class GuardConditional<C, E> extends Guard<C, E> {
   final GuardCondition<C, E> condition;
 
-  Guard(String this.type, GuardCondition<C, E> this.condition);
+  const GuardConditional(String type, GuardCondition<C, E> this.condition)
+      : super(type);
 
+  @override
   matches(C context, Event<E> event) => condition(context, event);
 }
 
 class GuardMatches<C, E> extends Guard<C, E> {
-  GuardMatches() : super('xstate.matches', (C context, Event<E> event) => true);
+  const GuardMatches() : super('xstate.matches');
+
+  @override
+  matches(C context, Event<E> event) => true;
 }
 
 class GuardMap<C, E> {
@@ -117,7 +129,7 @@ class GuardMap<C, E> {
   const GuardMap(this.guards);
 
   GuardMap<C, E> registerGuard(String name, GuardCondition<C, E> condition) =>
-      GuardMap({...guards, name: Guard<C, E>(name, condition)});
+      GuardMap({...guards, name: GuardConditional<C, E>(name, condition)});
 
   Guard<C, E> getGuard(String name) {
     assert(guards.containsKey(name),
