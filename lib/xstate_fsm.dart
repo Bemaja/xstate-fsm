@@ -46,52 +46,6 @@ class ActionAssign<C, E> extends Action<C, E> {
 
 enum ActionType { Action, Execution, Assignment }
 
-class ActionMap<C, E> {
-  final Map<String, Action<C, E>> actions;
-  final Map<String, ActionExecute<C, E>> executions;
-  final Map<String, ActionAssign<C, E>> assignments;
-
-  const ActionMap(this.actions, this.executions, this.assignments);
-
-  ActionMap<C, E> registerAction(String action) => ActionMap(
-      {...actions, action: Action<C, E>(action)}, executions, assignments);
-
-  ActionMap<C, E> registerExecution(
-          String action, ActionExecution<C, E> exec) =>
-      ActionMap({...actions, action: ActionExecute<C, E>(action, exec)},
-          executions, assignments);
-
-  ActionMap<C, E> registerAssignment(
-          String action, ActionAssignment<C, E> assignment) =>
-      ActionMap({...actions, action: ActionAssign<C, E>(assignment)},
-          executions, assignments);
-
-  Action<C, E> getAction(String action) {
-    if (actions.containsKey(action)) {
-      return actions[action];
-    } else if (executions.containsKey(action)) {
-      return executions[action];
-    } else if (assignments.containsKey(action)) {
-      return assignments[action];
-    }
-    assert(false, "Action ${action} missing in action map");
-    return Action("xstate.invalid");
-  }
-
-  List<Action<C, E>> getActions(dynamic action) {
-    if (action is List) {
-      return action
-          .expand<Action<C, E>>((single) => getActions(single))
-          .toList();
-    } else if (action == null) {
-      return [];
-    } else if (action is String) {
-      return [getAction(action)];
-    }
-    return [];
-  }
-}
-
 //***********************************************
 // GUARDS
 //***********************************************
@@ -123,20 +77,7 @@ class GuardMatches<C, E> extends Guard<C, E> {
   matches(C context, Event<E> event) => true;
 }
 
-class GuardMap<C, E> {
-  final Map<String, Guard<C, E>> guards;
-
-  const GuardMap(this.guards);
-
-  GuardMap<C, E> registerGuard(String name, GuardCondition<C, E> condition) =>
-      GuardMap({...guards, name: GuardConditional<C, E>(name, condition)});
-
-  Guard<C, E> getGuard(String name) {
-    assert(guards.containsKey(name),
-        "Guard ${name} missing in guard map ${guards}");
-    return guards[name];
-  }
-}
+class GuardMap<C, E> {}
 
 //***********************************************
 // CONTEXT
@@ -146,6 +87,93 @@ abstract class ContextFactory<C> {
   C fromMap(Map<String, dynamic> map);
 
   C copy(C original);
+}
+
+//***********************************************
+// OPTIONS
+//***********************************************
+
+class Options<C, E> {
+  final Map<String, Action<C, E>> actions;
+  final Map<String, ActionExecute<C, E>> executions;
+  final Map<String, ActionAssign<C, E>> assignments;
+
+  final Map<String, Guard<C, E>> guards;
+
+  final ContextFactory<C> contextFactory;
+
+  const Options(
+      {this.actions = const {},
+      this.executions = const {},
+      this.assignments = const {},
+      this.guards = const {},
+      this.contextFactory});
+
+  Action<C, E> operator [](String action) {
+    if (actions.containsKey(action)) {
+      return actions[action];
+    } else if (executions.containsKey(action)) {
+      return executions[action];
+    } else if (assignments.containsKey(action)) {
+      return assignments[action];
+    }
+    assert(false, "Action ${action} missing in action map");
+    return Action("xstate.invalid");
+  }
+
+  List<Action<C, E>> getActions(dynamic action) {
+    if (action is List) {
+      return action
+          .expand<Action<C, E>>((single) => getActions(single))
+          .toList();
+    } else if (action == null) {
+      return [];
+    } else if (action is String) {
+      return [this[action]];
+    }
+    return [];
+  }
+
+  Options<C, E> registerAction(String action) => Options<C, E>(
+      actions: {...actions, action: Action<C, E>(action)},
+      executions: executions,
+      assignments: assignments,
+      guards: guards,
+      contextFactory: contextFactory);
+
+  Options<C, E> registerExecution(String action, ActionExecution<C, E> exec) =>
+      Options<C, E>(
+          actions: actions,
+          executions: {
+            ...executions,
+            action: ActionExecute<C, E>(action, exec)
+          },
+          assignments: assignments,
+          guards: guards,
+          contextFactory: contextFactory);
+
+  Options<C, E> registerAssignment(
+          String action, ActionAssignment<C, E> assignment) =>
+      Options<C, E>(
+          actions: actions,
+          executions: executions,
+          assignments: {...assignments, action: ActionAssign<C, E>(assignment)},
+          guards: guards,
+          contextFactory: contextFactory);
+
+  Options<C, E> registerGuard(String name, GuardCondition<C, E> condition) =>
+      Options<C, E>(
+          actions: actions,
+          executions: executions,
+          assignments: assignments,
+          guards: {...guards, name: GuardConditional<C, E>(name, condition)},
+          contextFactory: contextFactory);
+
+  Guard<C, E> getGuard(String name) {
+    assert(guards.containsKey(name),
+        "Guard ${name} missing in guard map ${guards}");
+    return guards[name];
+  }
 }
 
 //***********************************************
@@ -315,42 +343,6 @@ class Config<C, E> {
   }
 }
 
-class Options<C, E> {
-  ActionMap<C, E> actionMap = ActionMap<C, E>({}, {}, {});
-  GuardMap<C, E> guardMap = GuardMap<C, E>({});
-  final ContextFactory<C> contextFactory;
-
-  Options({this.contextFactory});
-
-  Action<C, E> operator [](String action) => actionMap.getAction(action);
-
-  List<Action<C, E>> getActions(dynamic actions) =>
-      actionMap.getActions(actions);
-
-  Options<C, E> registerAction(String action) {
-    actionMap = actionMap.registerAction(action);
-    return this;
-  }
-
-  Options<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
-    actionMap = actionMap.registerExecution(action, exec);
-    return this;
-  }
-
-  Options<C, E> registerAssignment(
-      String action, ActionAssignment<C, E> assignment) {
-    actionMap = actionMap.registerAssignment(action, assignment);
-    return this;
-  }
-
-  Options<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    guardMap = guardMap.registerGuard(name, condition);
-    return this;
-  }
-
-  Guard<C, E> getGuard(String guard) => guardMap.getGuard(guard);
-}
-
 typedef StateMatcher = bool Function(String);
 
 StateMatcher createStateMatcher(String value) {
@@ -398,23 +390,23 @@ class Machine<C, E> {
   Action<C, E> operator [](String action) => options[action];
 
   Machine<C, E> registerAction(String action) {
-    options.registerAction(action);
+    options = options.registerAction(action);
     return this;
   }
 
   Machine<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
-    options.registerExecution(action, exec);
+    options = options.registerExecution(action, exec);
     return this;
   }
 
   Machine<C, E> registerAssignment(
       String action, ActionAssignment<C, E> assignment) {
-    options.registerAssignment(action, assignment);
+    options = options.registerAssignment(action, assignment);
     return this;
   }
 
   Machine<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    options.registerGuard(name, condition);
+    options = options.registerGuard(name, condition);
     return this;
   }
 }

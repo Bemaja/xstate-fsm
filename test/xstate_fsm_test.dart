@@ -40,20 +40,6 @@ class LightEvent {
     | { type: 'EMERGENCY'; value: number };
 */
 
-class LightState {}
-
-/*
-  LightState =
-    | {
-        value: 'green';
-        context: LightContext & { go: true };
-      }
-    | {
-        value: 'yellow';
-        context: LightContext & { go: false };
-      };
-
-*/
 /*
   interface LightContext {
     count: number;
@@ -74,39 +60,39 @@ class LightState {}
 
 void main() {
   Options<LightContext, LightEvent> options =
-      Options(contextFactory: LightContextFactory());
-  options.registerAction("enterGreen");
-  options.registerAction("exitGreen");
-  options.registerAction("g-y 1");
-  options.registerAction("g-y 2");
-  options.registerAssignment(
-      "g-a 1",
-      (LightContext c, Event<LightEvent> e) =>
-          LightContext(count: c.count + 1, foo: c.foo, go: c.go));
-  options.registerAssignment(
-      "g-a 2",
-      (LightContext c, Event<LightEvent> e) =>
-          LightContext(count: c.count + 1, foo: c.foo, go: c.go));
-  options.registerAssignment(
-      "g-a 3",
-      (LightContext c, Event<LightEvent> e) =>
-          LightContext(count: c.count, foo: 'static', go: c.go));
-  options.registerAssignment(
-      "g-a 4",
-      (LightContext c, Event<LightEvent> e) =>
-          LightContext(count: c.count, foo: c.foo + '++', go: c.go));
-  options.registerAssignment(
-      "y-e 1",
-      (LightContext c, Event<LightEvent> e) =>
-          LightContext(count: c.count, foo: c.foo, go: false));
-
-  options.registerAssignment(
-      "y-o 1",
-      (LightContext c, Event<LightEvent> e) =>
-          LightContext(count: c.count + 1, foo: c.foo, go: c.go));
-
-  options.registerGuard("y-g 1",
-      (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2);
+      Options<LightContext, LightEvent>(contextFactory: LightContextFactory())
+          .registerAction("enterGreen")
+          .registerAction("exitGreen")
+          .registerAction("g-y 1")
+          .registerAction("g-y 2")
+          .registerAssignment(
+              "g-a 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+          .registerAssignment(
+              "g-a 2",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+          .registerAssignment(
+              "g-a 3",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count, foo: 'static', go: c.go))
+          .registerAssignment(
+              "g-a 4",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count, foo: c.foo + '++', go: c.go))
+          .registerAssignment(
+              "y-e 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count, foo: c.foo, go: false))
+          .registerAssignment(
+              "y-o 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+          .registerGuard(
+              "y-g 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  c.count + e.event.value == 2);
 
   Map<String, dynamic> lightConfig = {
     "id": "light",
@@ -310,8 +296,8 @@ void main() {
       }
     };
 
-    Options<dynamic, dynamic> options = Options();
-    options.registerExecution("action", (context, event) {
+    Options<dynamic, dynamic> options =
+        Options().registerExecution("action", (context, event) {
       executed = true;
     });
     Config<dynamic, dynamic> config =
@@ -341,8 +327,8 @@ void main() {
       }
     };
 
-    Options<dynamic, dynamic> options = Options();
-    options.registerExecution("action", (context, event) {
+    Options<dynamic, dynamic> options =
+        Options().registerExecution("action", (context, event) {
       executed = true;
     });
     Config<dynamic, dynamic> config =
