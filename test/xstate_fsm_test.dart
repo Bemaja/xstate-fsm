@@ -75,37 +75,37 @@ class LightState {}
 void main() {
   Options<LightContext, LightEvent> options =
       Options(contextFactory: LightContextFactory());
-  options.actionMap.registerAction("enterGreen");
-  options.actionMap.registerAction("exitGreen");
-  options.actionMap.registerAction("g-y 1");
-  options.actionMap.registerAction("g-y 2");
-  options.actionMap.registerAssignment(
+  options.registerAction("enterGreen");
+  options.registerAction("exitGreen");
+  options.registerAction("g-y 1");
+  options.registerAction("g-y 2");
+  options.registerAssignment(
       "g-a 1",
       (LightContext c, Event<LightEvent> e) =>
           LightContext(count: c.count + 1, foo: c.foo, go: c.go));
-  options.actionMap.registerAssignment(
+  options.registerAssignment(
       "g-a 2",
       (LightContext c, Event<LightEvent> e) =>
           LightContext(count: c.count + 1, foo: c.foo, go: c.go));
-  options.actionMap.registerAssignment(
+  options.registerAssignment(
       "g-a 3",
       (LightContext c, Event<LightEvent> e) =>
           LightContext(count: c.count, foo: 'static', go: c.go));
-  options.actionMap.registerAssignment(
+  options.registerAssignment(
       "g-a 4",
       (LightContext c, Event<LightEvent> e) =>
           LightContext(count: c.count, foo: c.foo + '++', go: c.go));
-  options.actionMap.registerAssignment(
+  options.registerAssignment(
       "y-e 1",
       (LightContext c, Event<LightEvent> e) =>
           LightContext(count: c.count, foo: c.foo, go: false));
 
-  options.actionMap.registerAssignment(
+  options.registerAssignment(
       "y-o 1",
       (LightContext c, Event<LightEvent> e) =>
           LightContext(count: c.count + 1, foo: c.foo, go: c.go));
 
-  options.guardMap.registerGuard("y-g 1",
+  options.registerGuard("y-g 1",
       (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2);
 
   Map<String, dynamic> lightConfig = {
@@ -311,7 +311,7 @@ void main() {
     };
 
     Options<dynamic, dynamic> options = Options();
-    options.actionMap.registerExecution("action", (context, event) {
+    options.registerExecution("action", (context, event) {
       executed = true;
     });
     Config<dynamic, dynamic> config =
@@ -342,7 +342,7 @@ void main() {
     };
 
     Options<dynamic, dynamic> options = Options();
-    options.actionMap.registerExecution("action", (context, event) {
+    options.registerExecution("action", (context, event) {
       executed = true;
     });
     Config<dynamic, dynamic> config =

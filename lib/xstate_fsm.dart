@@ -122,17 +122,17 @@ class GuardMatches<C, E> extends Guard<C, E> {
 }
 
 class GuardMap<C, E> {
-  final Map<String, Guard<C, E>> guards = {};
+  final Map<String, Guard<C, E>> guards;
 
-  GuardMap();
+  const GuardMap(this.guards);
 
   GuardMap<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    guards[name] = Guard<C, E>(name, condition);
-    return this;
+    return GuardMap({...guards, name: Guard<C, E>(name, condition)});
   }
 
   Guard<C, E> getGuard(String name) {
-    assert(guards.containsKey(name), "Guard ${name} missing in guard map");
+    assert(guards.containsKey(name),
+        "Guard ${name} missing in guard map ${guards}");
     return guards[name];
   }
 }
@@ -316,7 +316,7 @@ class Config<C, E> {
 
 class Options<C, E> {
   final ActionMap<C, E> actionMap = ActionMap<C, E>();
-  final GuardMap<C, E> guardMap = GuardMap<C, E>();
+  GuardMap<C, E> guardMap = GuardMap<C, E>({});
   final ContextFactory<C> contextFactory;
 
   Options({this.contextFactory});
@@ -343,7 +343,7 @@ class Options<C, E> {
   }
 
   Options<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    guardMap.registerGuard(name, condition);
+    guardMap = guardMap.registerGuard(name, condition);
     return this;
   }
 
