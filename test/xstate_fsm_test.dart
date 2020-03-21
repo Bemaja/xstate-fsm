@@ -146,8 +146,6 @@ void main() {
 
   var lightFSM = Machine(config, options: options);
 
-  /*  var lightFSM =
-      createMachine<LightContext, LightEvent, LightState>(lightConfig);*/
   group('Machine', () {
     test('should return back the config object', () {
       expect(lightFSM.config, isA<Config>());
