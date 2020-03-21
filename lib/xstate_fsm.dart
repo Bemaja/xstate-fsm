@@ -47,44 +47,34 @@ class ActionAssign<C, E> extends Action<C, E> {
 enum ActionType { Action, Execution, Assignment }
 
 class ActionMap<C, E> {
-  final Map<String, Action<C, E>> actions = {};
-  final Map<String, ActionExecute<C, E>> executions = {};
-  final Map<String, ActionAssign<C, E>> assignments = {};
-  final Map<String, ActionType> types = {};
+  final Map<String, Action<C, E>> actions;
+  final Map<String, ActionExecute<C, E>> executions;
+  final Map<String, ActionAssign<C, E>> assignments;
 
-  ActionMap();
+  const ActionMap(this.actions, this.executions, this.assignments);
 
-  ActionMap<C, E> registerAction(String action) {
-    actions[action] = Action<C, E>(action);
-    types[action] = ActionType.Action;
-    return this;
-  }
+  ActionMap<C, E> registerAction(String action) => ActionMap(
+      {...actions, action: Action<C, E>(action)}, executions, assignments);
 
-  ActionMap<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
-    executions[action] = ActionExecute<C, E>(action, exec);
-    types[action] = ActionType.Execution;
-    return this;
-  }
+  ActionMap<C, E> registerExecution(
+          String action, ActionExecution<C, E> exec) =>
+      ActionMap({...actions, action: ActionExecute<C, E>(action, exec)},
+          executions, assignments);
 
   ActionMap<C, E> registerAssignment(
-      String action, ActionAssignment<C, E> assignment) {
-    assignments[action] = ActionAssign<C, E>(assignment);
-    types[action] = ActionType.Assignment;
-    return this;
-  }
-
-  ActionType getType(String action) => types[action];
+          String action, ActionAssignment<C, E> assignment) =>
+      ActionMap({...actions, action: ActionAssign<C, E>(assignment)},
+          executions, assignments);
 
   Action<C, E> getAction(String action) {
-    assert(types.containsKey(action), "Action ${action} missing in action map");
-    switch (types[action]) {
-      case ActionType.Action:
-        return actions[action];
-      case ActionType.Execution:
-        return executions[action];
-      case ActionType.Assignment:
-        return assignments[action];
+    if (actions.containsKey(action)) {
+      return actions[action];
+    } else if (executions.containsKey(action)) {
+      return executions[action];
+    } else if (assignments.containsKey(action)) {
+      return assignments[action];
     }
+    assert(false, "Action ${action} missing in action map");
     return Action("xstate.invalid");
   }
 
@@ -126,9 +116,8 @@ class GuardMap<C, E> {
 
   const GuardMap(this.guards);
 
-  GuardMap<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    return GuardMap({...guards, name: Guard<C, E>(name, condition)});
-  }
+  GuardMap<C, E> registerGuard(String name, GuardCondition<C, E> condition) =>
+      GuardMap({...guards, name: Guard<C, E>(name, condition)});
 
   Guard<C, E> getGuard(String name) {
     assert(guards.containsKey(name),
@@ -315,7 +304,7 @@ class Config<C, E> {
 }
 
 class Options<C, E> {
-  final ActionMap<C, E> actionMap = ActionMap<C, E>();
+  ActionMap<C, E> actionMap = ActionMap<C, E>({}, {}, {});
   GuardMap<C, E> guardMap = GuardMap<C, E>({});
   final ContextFactory<C> contextFactory;
 
@@ -327,18 +316,18 @@ class Options<C, E> {
       actionMap.getActions(actions);
 
   Options<C, E> registerAction(String action) {
-    actionMap.registerAction(action);
+    actionMap = actionMap.registerAction(action);
     return this;
   }
 
   Options<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
-    actionMap.registerExecution(action, exec);
+    actionMap = actionMap.registerExecution(action, exec);
     return this;
   }
 
   Options<C, E> registerAssignment(
       String action, ActionAssignment<C, E> assignment) {
-    actionMap.registerAssignment(action, assignment);
+    actionMap = actionMap.registerAssignment(action, assignment);
     return this;
   }
 
