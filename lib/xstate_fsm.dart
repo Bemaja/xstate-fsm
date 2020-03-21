@@ -7,7 +7,7 @@ import 'package:equatable/equatable.dart';
 class Action<C, E> extends Equatable {
   final String type;
 
-  Action(String this.type);
+  const Action(String this.type);
 
   @override
   List<Object> get props => [type];
@@ -23,7 +23,7 @@ typedef ActionExecution<C, E> = Function(C context, Event<E> event);
 class ActionExecute<C, E> extends Action<C, E> {
   final ActionExecution<C, E> exec;
 
-  ActionExecute(type, ActionExecution<C, E> this.exec) : super(type);
+  const ActionExecute(type, ActionExecution<C, E> this.exec) : super(type);
 
   @override
   List<Object> get props => [type, exec];
@@ -36,7 +36,7 @@ typedef ActionAssignment<C, E> = C Function(C context, Event<E> event);
 class ActionAssign<C, E> extends Action<C, E> {
   final ActionAssignment<C, E> assignment;
 
-  ActionAssign(this.assignment) : super('xstate.assign');
+  const ActionAssign(this.assignment) : super('xstate.assign');
 
   @override
   List<Object> get props => [type, assignment];
@@ -158,18 +158,18 @@ class ConfigTransition<C, E> {
 
   ConfigTransition();
 
-  ConfigTransition.fromConfig(Map<String, dynamic> transition,
-      ActionMap<C, E> actionMap, GuardMap<C, E> guardMap)
+  ConfigTransition.fromConfig(
+      Map<String, dynamic> transition, Options<C, E> options)
       : this.target = transition['target'],
 // Ensure ['actions'] is a list
-        this.actions = actionMap != null
+        this.actions = options != null
             ? (transition['actions'] ?? []).map<Action<C, E>>((action) {
-                var actionObject = actionMap.getAction(action);
+                Action<C, E> actionObject = options[action];
                 return actionObject;
               }).toList()
             : [],
         this.condition = (transition['cond'] != null)
-            ? guardMap.getGuard(transition['cond'])
+            ? options.getGuard(transition['cond'])
             : GuardMatches<C, E>();
 
   bool doesNotMatch(C context, Event<E> event) {
@@ -218,18 +218,15 @@ class ConfigNoTransition<C, E> extends ConfigTransition<C, E> {
 class ConfigTransitions<C, E> {
   Map<String, List<ConfigTransition<C, E>>> transitions;
 
-  ConfigTransitions.fromConfig(Map<String, dynamic> transitions,
-      ActionMap<C, E> actionMap, GuardMap<C, E> guardMap)
+  ConfigTransitions.fromConfig(
+      Map<String, dynamic> transitions, Options<C, E> options)
       : this.transitions = transitions.map((String key, dynamic transition) =>
             MapEntry(
                 key,
                 transition is List
-                    ? transition.map((t) =>
-                        ConfigTransition.fromConfig(t, actionMap, guardMap))
-                    : [
-                        ConfigTransition.fromConfig(
-                            transition, actionMap, guardMap)
-                      ]));
+                    ? transition
+                        .map((t) => ConfigTransition.fromConfig(t, options))
+                    : [ConfigTransition.fromConfig(transition, options)]));
 
   List<ConfigTransition<C, E>> getTransitionFor(Event<E> event) {
     if (!transitions.containsKey(event.type)) {
@@ -246,14 +243,12 @@ class ConfigState<C, E> {
 
   ConfigState();
 
-  ConfigState.fromConfig(
-      dynamic state, ActionMap<C, E> actionMap, GuardMap<C, E> guardMap)
+  ConfigState.fromConfig(dynamic state, Options<C, E> options)
       : this.entries =
-            actionMap != null ? actionMap.getActions(state['entry']) : [],
-        this.exits =
-            actionMap != null ? actionMap.getActions(state['exit']) : [],
-        this.transitions = ConfigTransitions.fromConfig(
-            state['on'] ?? {}, actionMap, guardMap);
+            options != null ? options.getActions(state['entry']) : [],
+        this.exits = options != null ? options.getActions(state['exit']) : [],
+        this.transitions =
+            ConfigTransitions.fromConfig(state['on'] ?? {}, options);
 
   State<C, E> transition(
       State<C, E> state, Event<E> event, StateResolver<C, E> resolver) {
@@ -275,9 +270,9 @@ class ConfigStates<C, E> {
   ConfigStates(this.states);
 
   ConfigStates.fromConfig(Map<String, dynamic> states,
-      {ActionMap<C, E> actionMap, GuardMap<C, E> guardMap, String this.id})
+      {Options<C, E> options, String this.id})
       : this.states = states.map((String key, dynamic state) =>
-            MapEntry(key, ConfigState.fromConfig(state, actionMap, guardMap)));
+            MapEntry(key, ConfigState.fromConfig(state, options)));
 
   ConfigState<C, E> resolveTarget(String target) {
     if (!states.containsKey(target)) {
@@ -312,9 +307,7 @@ class Config<C, E> {
         this.id = config['id'] ?? '',
         this.context = config['context'] ?? {},
         this.states = ConfigStates.fromConfig(config['states'],
-            actionMap: options != null ? options.actionMap : null,
-            guardMap: options != null ? options.guardMap : null,
-            id: config['id'] ?? '');
+            options: options, id: config['id'] ?? '');
 
   State<C, E> transition(State<C, E> state, Event<E> event) {
     return states.transition(state, event);
@@ -327,6 +320,34 @@ class Options<C, E> {
   final ContextFactory<C> contextFactory;
 
   Options({this.contextFactory});
+
+  Action<C, E> operator [](String action) => actionMap.getAction(action);
+
+  List<Action<C, E>> getActions(dynamic actions) =>
+      actionMap.getActions(actions);
+
+  Options<C, E> registerAction(String action) {
+    actionMap.registerAction(action);
+    return this;
+  }
+
+  Options<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
+    actionMap.registerExecution(action, exec);
+    return this;
+  }
+
+  Options<C, E> registerAssignment(
+      String action, ActionAssignment<C, E> assignment) {
+    actionMap.registerAssignment(action, assignment);
+    return this;
+  }
+
+  Options<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
+    guardMap.registerGuard(name, condition);
+    return this;
+  }
+
+  Guard<C, E> getGuard(String guard) => guardMap.getGuard(guard);
 }
 
 typedef StateMatcher = bool Function(String);
@@ -373,55 +394,26 @@ class Machine<C, E> {
     return config.transition(state, event);
   }
 
-  /*
-  State<C, E> stateFromString(String state) {
-    return State(state, context: config.context);
-  }
-
-  State<C, E> dynamicTransition(dynamic state, dynamic event) {
-    State<C, E> typedState;
-    Event<void> typedEvent;
-
-    if (state is State) {
-      typedState = state;
-    } else if (state is String) {
-      typedState = stateFromString(state);
-    } else {
-      throw 'Invalid state input';
-    }
-
-    if (event is Event) {
-      typedEvent = event;
-    } else if (event is String) {
-      typedEvent = Event(event);
-    } else {
-      throw 'Invalid event input';
-    }
-
-    return transition(typedState, typedEvent);
-  }
-*/
-  Action<C, E> operator [](String action) =>
-      options.actionMap.getAction(action);
+  Action<C, E> operator [](String action) => options[action];
 
   Machine<C, E> registerAction(String action) {
-    options.actionMap.registerAction(action);
+    options.registerAction(action);
     return this;
   }
 
   Machine<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
-    options.actionMap.registerExecution(action, exec);
+    options.registerExecution(action, exec);
     return this;
   }
 
   Machine<C, E> registerAssignment(
       String action, ActionAssignment<C, E> assignment) {
-    options.actionMap.registerAssignment(action, assignment);
+    options.registerAssignment(action, assignment);
     return this;
   }
 
   Machine<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    options.guardMap.registerGuard(name, condition);
+    options.registerGuard(name, condition);
     return this;
   }
 }
