@@ -90,93 +90,6 @@ abstract class ContextFactory<C> {
 }
 
 //***********************************************
-// OPTIONS
-//***********************************************
-
-class Options<C, E> {
-  final Map<String, Action<C, E>> actions;
-  final Map<String, ActionExecute<C, E>> executions;
-  final Map<String, ActionAssign<C, E>> assignments;
-
-  final Map<String, Guard<C, E>> guards;
-
-  final ContextFactory<C> contextFactory;
-
-  const Options(
-      {this.actions = const {},
-      this.executions = const {},
-      this.assignments = const {},
-      this.guards = const {},
-      this.contextFactory});
-
-  Action<C, E> operator [](String action) {
-    if (actions.containsKey(action)) {
-      return actions[action];
-    } else if (executions.containsKey(action)) {
-      return executions[action];
-    } else if (assignments.containsKey(action)) {
-      return assignments[action];
-    }
-    assert(false, "Action ${action} missing in action map");
-    return Action("xstate.invalid");
-  }
-
-  List<Action<C, E>> getActions(dynamic action) {
-    if (action is List) {
-      return action
-          .expand<Action<C, E>>((single) => getActions(single))
-          .toList();
-    } else if (action == null) {
-      return [];
-    } else if (action is String) {
-      return [this[action]];
-    }
-    return [];
-  }
-
-  Options<C, E> registerAction(String action) => Options<C, E>(
-      actions: {...actions, action: Action<C, E>(action)},
-      executions: executions,
-      assignments: assignments,
-      guards: guards,
-      contextFactory: contextFactory);
-
-  Options<C, E> registerExecution(String action, ActionExecution<C, E> exec) =>
-      Options<C, E>(
-          actions: actions,
-          executions: {
-            ...executions,
-            action: ActionExecute<C, E>(action, exec)
-          },
-          assignments: assignments,
-          guards: guards,
-          contextFactory: contextFactory);
-
-  Options<C, E> registerAssignment(
-          String action, ActionAssignment<C, E> assignment) =>
-      Options<C, E>(
-          actions: actions,
-          executions: executions,
-          assignments: {...assignments, action: ActionAssign<C, E>(assignment)},
-          guards: guards,
-          contextFactory: contextFactory);
-
-  Options<C, E> registerGuard(String name, GuardCondition<C, E> condition) =>
-      Options<C, E>(
-          actions: actions,
-          executions: executions,
-          assignments: assignments,
-          guards: {...guards, name: GuardConditional<C, E>(name, condition)},
-          contextFactory: contextFactory);
-
-  Guard<C, E> getGuard(String name) {
-    assert(guards.containsKey(name),
-        "Guard ${name} missing in guard map ${guards}");
-    return guards[name];
-  }
-}
-
-//***********************************************
 // MAIN
 //***********************************************
 
@@ -188,17 +101,17 @@ class ConfigTransition<C, E> {
   ConfigTransition();
 
   ConfigTransition.fromConfig(
-      Map<String, dynamic> transition, Options<C, E> options)
+      Map<String, dynamic> transition, Machine<C, E> machine)
       : this.target = transition['target'],
 // Ensure ['actions'] is a list
-        this.actions = options != null
+        this.actions = machine != null
             ? (transition['actions'] ?? []).map<Action<C, E>>((action) {
-                Action<C, E> actionObject = options[action];
+                Action<C, E> actionObject = machine[action];
                 return actionObject;
               }).toList()
             : [],
         this.condition = (transition['cond'] != null)
-            ? options.getGuard(transition['cond'])
+            ? machine.getGuard(transition['cond'])
             : GuardMatches<C, E>();
 
   bool doesNotMatch(C context, Event<E> event) {
@@ -248,14 +161,14 @@ class ConfigTransitions<C, E> {
   Map<String, List<ConfigTransition<C, E>>> transitions;
 
   ConfigTransitions.fromConfig(
-      Map<String, dynamic> transitions, Options<C, E> options)
+      Map<String, dynamic> transitions, Machine<C, E> machine)
       : this.transitions = transitions.map((String key, dynamic transition) =>
             MapEntry(
                 key,
                 transition is List
                     ? transition
-                        .map((t) => ConfigTransition.fromConfig(t, options))
-                    : [ConfigTransition.fromConfig(transition, options)]));
+                        .map((t) => ConfigTransition.fromConfig(t, machine))
+                    : [ConfigTransition.fromConfig(transition, machine)]));
 
   List<ConfigTransition<C, E>> getTransitionFor(Event<E> event) {
     if (!transitions.containsKey(event.type)) {
@@ -272,12 +185,12 @@ class ConfigState<C, E> {
 
   ConfigState();
 
-  ConfigState.fromConfig(dynamic state, Options<C, E> options)
+  ConfigState.fromConfig(dynamic state, Machine<C, E> machine)
       : this.entries =
-            options != null ? options.getActions(state['entry']) : [],
-        this.exits = options != null ? options.getActions(state['exit']) : [],
+            machine != null ? machine.getActions(state['entry']) : [],
+        this.exits = machine != null ? machine.getActions(state['exit']) : [],
         this.transitions =
-            ConfigTransitions.fromConfig(state['on'] ?? {}, options);
+            ConfigTransitions.fromConfig(state['on'] ?? {}, machine);
 
   State<C, E> transition(
       State<C, E> state, Event<E> event, StateResolver<C, E> resolver) {
@@ -299,9 +212,9 @@ class ConfigStates<C, E> {
   ConfigStates(this.states);
 
   ConfigStates.fromConfig(Map<String, dynamic> states,
-      {Options<C, E> options, String this.id})
+      {Machine<C, E> machine, String this.id})
       : this.states = states.map((String key, dynamic state) =>
-            MapEntry(key, ConfigState.fromConfig(state, options)));
+            MapEntry(key, ConfigState.fromConfig(state, machine)));
 
   ConfigState<C, E> resolveTarget(String target) {
     if (!states.containsKey(target)) {
@@ -331,12 +244,12 @@ class Config<C, E> {
   Map<String, dynamic> context;
   ConfigStates<C, E> states;
 
-  Config.fromConfig(Map<String, dynamic> config, {Options<C, E> options})
+  Config.fromConfig(Map<String, dynamic> config, {Machine<C, E> machine})
       : this.initial = config['initial'] ?? '',
         this.id = config['id'] ?? '',
         this.context = config['context'] ?? {},
         this.states = ConfigStates.fromConfig(config['states'],
-            options: options, id: config['id'] ?? '');
+            machine: machine, id: config['id'] ?? '');
 
   State<C, E> transition(State<C, E> state, Event<E> event) {
     return states.transition(state, event);
@@ -369,45 +282,113 @@ class Event<E> {
 
 class Machine<C, E> {
   Config<C, E> config;
-  State<C, E> initialState;
-  Options<C, E> options = Options();
 
-  Machine(Config<C, E> this.config, {Options<C, E> this.options})
-      : this.initialState = config.initial != null &&
-                config.states.states.containsKey(config.initial)
-            ? State<C, E>(config.initial,
-                actions: config.states.states[config.initial].entries,
-                context: !config.context.isEmpty
-                    ? options.contextFactory.fromMap(config.context)
-                    : null,
-                matches: (String stateValue) => stateValue == config.initial)
-            : null;
+  final Map<String, Action<C, E>> actions;
+  final Map<String, ActionExecute<C, E>> executions;
+  final Map<String, ActionAssign<C, E>> assignments;
+
+  final Map<String, Guard<C, E>> guards;
+
+  final ContextFactory<C> contextFactory;
+
+  Machine(
+      {this.config,
+      this.actions = const {},
+      this.executions = const {},
+      this.assignments = const {},
+      this.guards = const {},
+      this.contextFactory});
+
+  Machine.fromMap(Map<String, dynamic> config, Machine<C, E> machine)
+      : this.actions = machine.actions,
+        this.executions = machine.executions,
+        this.assignments = machine.assignments,
+        this.contextFactory = machine.contextFactory,
+        this.guards = machine.guards {
+    this.config = Config<C, E>.fromConfig(config, machine: this);
+  }
+
+  Machine<C, E> action(String action) => Machine<C, E>(
+      config: config,
+      actions: {...actions, action: Action<C, E>(action)},
+      executions: executions,
+      assignments: assignments,
+      guards: guards,
+      contextFactory: contextFactory);
+
+  Machine<C, E> execution(String action, ActionExecution<C, E> exec) =>
+      Machine<C, E>(
+          config: config,
+          actions: actions,
+          executions: {
+            ...executions,
+            action: ActionExecute<C, E>(action, exec)
+          },
+          assignments: assignments,
+          guards: guards,
+          contextFactory: contextFactory);
+
+  Machine<C, E> assignment(String action, ActionAssignment<C, E> assignment) =>
+      Machine<C, E>(
+          config: config,
+          actions: actions,
+          executions: executions,
+          assignments: {...assignments, action: ActionAssign<C, E>(assignment)},
+          guards: guards,
+          contextFactory: contextFactory);
+
+  Machine<C, E> guard(String name, GuardCondition<C, E> condition) =>
+      Machine<C, E>(
+          config: config,
+          actions: actions,
+          executions: executions,
+          assignments: assignments,
+          guards: {...guards, name: GuardConditional<C, E>(name, condition)},
+          contextFactory: contextFactory);
+
+  State<C, E> get initialState =>
+      config.initial != null && config.states.states.containsKey(config.initial)
+          ? State<C, E>(config.initial,
+              actions: config.states.states[config.initial].entries,
+              context: !config.context.isEmpty
+                  ? contextFactory.fromMap(config.context)
+                  : null,
+              matches: (String stateValue) => stateValue == config.initial)
+          : null;
+
+  Action<C, E> operator [](String action) {
+    if (actions.containsKey(action)) {
+      return actions[action];
+    } else if (executions.containsKey(action)) {
+      return executions[action];
+    } else if (assignments.containsKey(action)) {
+      return assignments[action];
+    }
+    assert(false, "Action ${action} missing in action map");
+    return Action("xstate.invalid");
+  }
+
+  List<Action<C, E>> getActions(dynamic action) {
+    if (action is List) {
+      return action
+          .expand<Action<C, E>>((single) => getActions(single))
+          .toList();
+    } else if (action == null) {
+      return [];
+    } else if (action is String) {
+      return [this[action]];
+    }
+    return [];
+  }
+
+  Guard<C, E> getGuard(String name) {
+    assert(guards.containsKey(name),
+        "Guard ${name} missing in guard map ${guards}");
+    return guards[name];
+  }
 
   State<C, E> transition(State<C, E> state, Event<E> event) {
     return config.transition(state, event);
-  }
-
-  Action<C, E> operator [](String action) => options[action];
-
-  Machine<C, E> registerAction(String action) {
-    options = options.registerAction(action);
-    return this;
-  }
-
-  Machine<C, E> registerExecution(String action, ActionExecution<C, E> exec) {
-    options = options.registerExecution(action, exec);
-    return this;
-  }
-
-  Machine<C, E> registerAssignment(
-      String action, ActionAssignment<C, E> assignment) {
-    options = options.registerAssignment(action, assignment);
-    return this;
-  }
-
-  Machine<C, E> registerGuard(String name, GuardCondition<C, E> condition) {
-    options = options.registerGuard(name, condition);
-    return this;
   }
 }
 

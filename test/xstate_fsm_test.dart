@@ -59,41 +59,6 @@ class LightEvent {
 */
 
 void main() {
-  Options<LightContext, LightEvent> options =
-      Options<LightContext, LightEvent>(contextFactory: LightContextFactory())
-          .registerAction("enterGreen")
-          .registerAction("exitGreen")
-          .registerAction("g-y 1")
-          .registerAction("g-y 2")
-          .registerAssignment(
-              "g-a 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-          .registerAssignment(
-              "g-a 2",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-          .registerAssignment(
-              "g-a 3",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count, foo: 'static', go: c.go))
-          .registerAssignment(
-              "g-a 4",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count, foo: c.foo + '++', go: c.go))
-          .registerAssignment(
-              "y-e 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count, foo: c.foo, go: false))
-          .registerAssignment(
-              "y-o 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-          .registerGuard(
-              "y-g 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  c.count + e.event.value == 2);
-
   Map<String, dynamic> lightConfig = {
     "id": "light",
     "initial": "green",
@@ -127,10 +92,42 @@ void main() {
       "red": {}
     }
   };
-  Config<LightContext, LightEvent> config =
-      Config.fromConfig(lightConfig, options: options);
 
-  var lightFSM = Machine(config, options: options);
+  var lightFSM = Machine<LightContext, LightEvent>.fromMap(
+      lightConfig,
+      Machine<LightContext, LightEvent>(contextFactory: LightContextFactory())
+          .action("enterGreen")
+          .action("exitGreen")
+          .action("g-y 1")
+          .action("g-y 2")
+          .assignment(
+              "g-a 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+          .assignment(
+              "g-a 2",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+          .assignment(
+              "g-a 3",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count, foo: 'static', go: c.go))
+          .assignment(
+              "g-a 4",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count, foo: c.foo + '++', go: c.go))
+          .assignment(
+              "y-e 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count, foo: c.foo, go: false))
+          .assignment(
+              "y-o 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+          .guard(
+              "y-g 1",
+              (LightContext c, Event<LightEvent> e) =>
+                  c.count + e.event.value == 2));
 
   group('Machine', () {
     test('should return back the config object', () {
@@ -250,9 +247,7 @@ void main() {
       }
     };
 
-    Config<dynamic, dynamic> config = Config.fromConfig(toggleConfig);
-
-    var toggleMachine = Machine(config);
+    var toggleMachine = Machine.fromMap(toggleConfig, Machine());
 
     test('listeners should immediately get the initial state', () {
       var toggleService = Interpreter(toggleMachine).start();
@@ -296,14 +291,11 @@ void main() {
       }
     };
 
-    Options<dynamic, dynamic> options =
-        Options().registerExecution("action", (context, event) {
-      executed = true;
-    });
-    Config<dynamic, dynamic> config =
-        Config.fromConfig(actionConfig, options: options);
-
-    var actionMachine = Machine(config, options: options);
+    var actionMachine = Machine.fromMap(
+        actionConfig,
+        Machine().execution("action", (context, event) {
+          executed = true;
+        }));
 
     var actionService = Interpreter(actionMachine).start();
 
@@ -327,14 +319,11 @@ void main() {
       }
     };
 
-    Options<dynamic, dynamic> options =
-        Options().registerExecution("action", (context, event) {
-      executed = true;
-    });
-    Config<dynamic, dynamic> config =
-        Config.fromConfig(actionConfig, options: options);
-
-    var actionMachine = Machine(config, options: options);
+    var actionMachine = Machine.fromMap(
+        actionConfig,
+        Machine().execution("action", (context, event) {
+          executed = true;
+        }));
 
     Interpreter(actionMachine).start();
 
