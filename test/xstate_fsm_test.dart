@@ -93,49 +93,46 @@ void main() {
     }
   };
 
-  var lightFSM =
-      Machine<LightContext, LightEvent>(contextFactory: LightContextFactory())
-          .action("enterGreen")
-          .action("exitGreen")
-          .action("g-y 1")
-          .action("g-y 2")
-          .assignment(
-              "g-a 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-          .assignment(
-              "g-a 2",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-          .assignment(
-              "g-a 3",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count, foo: 'static', go: c.go))
-          .assignment(
-              "g-a 4",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count, foo: c.foo + '++', go: c.go))
-          .assignment(
-              "y-e 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count, foo: c.foo, go: false))
-          .assignment(
-              "y-o 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-          .guard(
-              "y-g 1",
-              (LightContext c, Event<LightEvent> e) =>
-                  c.count + e.event.value == 2)
-          .configure(lightConfig);
+  var lightFSM = Machine<LightContext, LightEvent>()
+      .action("enterGreen")
+      .action("exitGreen")
+      .action("g-y 1")
+      .action("g-y 2")
+      .assignment(
+          "g-a 1",
+          (LightContext c, Event<LightEvent> e) =>
+              LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+      .assignment(
+          "g-a 2",
+          (LightContext c, Event<LightEvent> e) =>
+              LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+      .assignment(
+          "g-a 3",
+          (LightContext c, Event<LightEvent> e) =>
+              LightContext(count: c.count, foo: 'static', go: c.go))
+      .assignment(
+          "g-a 4",
+          (LightContext c, Event<LightEvent> e) =>
+              LightContext(count: c.count, foo: c.foo + '++', go: c.go))
+      .assignment(
+          "y-e 1",
+          (LightContext c, Event<LightEvent> e) =>
+              LightContext(count: c.count, foo: c.foo, go: false))
+      .assignment(
+          "y-o 1",
+          (LightContext c, Event<LightEvent> e) =>
+              LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+      .guard("y-g 1",
+          (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2)
+      .configure(lightConfig, contextFactory: LightContextFactory());
 
   group('Machine', () {
     test('should return back the config object', () {
-      expect(lightFSM.config, isA<Config>());
+      expect(lightFSM.config, equals(lightConfig));
     });
 
     test('should have the correct initial state', () {
-      expect(lightFSM.initialState.value, equals('green'));
+      expect(lightFSM.initialState.value.toStateValue(), equals('green'));
     });
 
     test('should have the correct initial actions', () {
@@ -144,7 +141,7 @@ void main() {
 
     test('should transition correctly', () {
       var nextState = lightFSM.transition(
-          State<LightContext, LightEvent>('green',
+          State<LightContext, LightEvent>(lightFSM.select('green'),
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('TIMER'));
       expect(nextState.value, equals('yellow'));
@@ -158,7 +155,7 @@ void main() {
 
     test('should stay on the same state for undefined transitions', () {
       var nextState = lightFSM.transition(
-          State<LightContext, LightEvent>('green',
+          State<LightContext, LightEvent>(lightFSM.select('green'),
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('FAKE'));
       expect(nextState.value, equals('green'));
@@ -166,24 +163,26 @@ void main() {
     });
 
     test('should throw an error for undefined states', () {
-      expect(() => lightFSM.transition(State('unknown'), Event('TIMER')),
+      expect(
+          () => lightFSM.transition(
+              State(lightFSM.select('unknown')), Event('TIMER')),
           throwsA(isA<AssertionError>()));
     });
 
     test('should work with guards', () {
       var yellowState = lightFSM.transition(
-          State('yellow', context: LightContext()),
+          State(lightFSM.select('yellow'), context: LightContext()),
           Event('EMERGENCY', event: LightEvent(0)));
       expect(yellowState.value, 'yellow');
 
       var redState = lightFSM.transition(
-          State('yellow', context: LightContext()),
+          State(lightFSM.select('yellow'), context: LightContext()),
           Event('EMERGENCY', event: LightEvent(2)));
       expect(redState.value, equals('red'));
       expect(redState.context.count, equals(0));
 
       var yellowOneState = lightFSM.transition(
-          State('yellow', context: LightContext()),
+          State(lightFSM.select('yellow'), context: LightContext()),
           Event('INC', event: LightEvent(0)));
       var redOneState = lightFSM.transition(
           yellowOneState, Event('EMERGENCY', event: LightEvent(1)));
@@ -196,7 +195,8 @@ void main() {
       expect(
           lightFSM
               .transition(
-                  State('green', context: LightContext()), Event('TIMER'))
+                  State(lightFSM.select('green'), context: LightContext()),
+                  Event('TIMER'))
               .changed,
           equals(true));
     });
@@ -205,7 +205,8 @@ void main() {
       expect(
           lightFSM
               .transition(
-                  State('yellow', context: LightContext()), Event('INC'))
+                  State(lightFSM.select('yellow'), context: LightContext()),
+                  Event('INC'))
               .changed,
           equals(true));
     });
@@ -214,7 +215,8 @@ void main() {
       expect(
           lightFSM
               .transition(
-                  State('yellow', context: LightContext()), Event('UNKNOWN'))
+                  State(lightFSM.select('yellow'), context: LightContext()),
+                  Event('UNKNOWN'))
               .changed,
           equals(false));
     });

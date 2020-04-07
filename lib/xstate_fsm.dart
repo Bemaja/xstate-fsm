@@ -1,4 +1,6 @@
 import 'package:equatable/equatable.dart';
+import 'package:logging/logging.dart';
+import 'activities.dart';
 
 //***********************************************
 // ACTIONS
@@ -84,14 +86,27 @@ class GuardMap<C, E> {}
 //***********************************************
 
 class State<C, E> {
-  String value;
-  List<Action<C, E>> actions = [];
-  C context;
-  bool changed;
-  StateMatcher matches;
+  final StateTreeNode<C, E> value;
+  final List<Action<C, E>> actions;
+  final C context;
+  final bool changed;
+  final StateMatcher matches;
+  final Map<String, bool> activities;
+  final List<dynamic> children;
 
-  State(this.value,
-      {this.actions, this.context = null, this.changed = false, this.matches});
+  const State(this.value,
+      {this.context = null,
+      this.actions = const [],
+      this.activities = const {},
+      this.children = const [],
+      this.changed = false,
+      this.matches});
+
+  static StateMatcher createStateMatcher(String value) {
+    return (String stateValue) => stateValue == value;
+  }
+
+  // matches: (String stateValue) => stateValue == initial)
 }
 
 class Event<E> {
@@ -99,6 +114,9 @@ class Event<E> {
   final E event;
 
   const Event(this.type, {this.event});
+
+  @override
+  String toString() => "${Event}(${type})";
 }
 
 abstract class ContextFactory<C> {
@@ -108,288 +126,890 @@ abstract class ContextFactory<C> {
 }
 
 //***********************************************
-// MAIN
+// TRANSITIONS
 //***********************************************
 
-class ConfigTransition<C, E> {
-  String target;
-  List<Action<C, E>> actions;
-  Guard<C, E> condition;
+class Transition<C, E> {
+  final LazyAccess<StateNode<C, E>> getTarget;
+  final List<Action<C, E>> actions;
+  final Guard<C, E> condition;
 
-  ConfigTransition();
-
-  ConfigTransition.fromConfig(
-      Map<String, dynamic> transition, Machine<C, E> machine)
-      : this.target = transition['target'],
-// Ensure ['actions'] is a list
-        this.actions = machine != null
-            ? (transition['actions'] ?? []).map<Action<C, E>>((action) {
-                Action<C, E> actionObject = machine[action];
-                return actionObject;
-              }).toList()
-            : [],
-        this.condition = (transition['cond'] != null)
-            ? machine.getGuard(transition['cond'])
-            : GuardMatches<C, E>();
+  const Transition({this.getTarget, this.actions, this.condition});
 
   bool doesNotMatch(C context, Event<E> event) {
     return condition != null && !condition.matches(context, event);
   }
-
-  State<C, E> transition(State<C, E> state, Event<E> event,
-      StateResolver<C, E> resolver, List<Action<C, E>> exits) {
-    ConfigState<C, E> targetState = resolver(target ?? state.value);
-
-    List<Action<C, E>> allActions =
-        (exits ?? []) + (actions ?? []) + (targetState.entries ?? []);
-
-    return State(target ?? state.value,
-        context: allActions.fold<C>(state.context,
-            (C oldContext, Action<C, E> action) {
-          if (action is ActionAssign<C, E>) {
-            return action.assign(oldContext, event);
-          } else {
-            return oldContext;
-          }
-        }),
-        actions:
-            allActions.where((action) => !(action is ActionAssign)).toList(),
-        changed: target != state.value ||
-            !allActions.isEmpty ||
-            allActions.fold<bool>(
-                false,
-                (bool changed, Action<C, E> action) =>
-                    changed || (action is ActionAssign)),
-        matches: (String stateValue) => stateValue == target);
-  }
 }
 
-class ConfigNoTransition<C, E> extends ConfigTransition<C, E> {
-  State<C, E> transition(State<C, E> state, Event<E> event,
-      StateResolver<C, E> resolver, List<Action<C, E>> exits) {
-    return State(state.value,
-        context: state.context,
-        actions: [],
-        changed: false,
-        matches: (String stateValue) => stateValue == state.value);
-  }
+class NoTransition<C, E> extends Transition<C, E> {
+  bool doesNotMatch(C context, Event<E> event) => false;
 }
 
-class ConfigTransitions<C, E> {
-  Map<String, List<ConfigTransition<C, E>>> transitions;
+class ActionCollector<C, E> {
+  final StateTreeNode<C, E> tree;
 
-  ConfigTransitions.fromConfig(
-      Map<String, dynamic> transitions, Machine<C, E> machine)
-      : this.transitions = transitions.map((String key, dynamic transition) =>
-            MapEntry(
-                key,
-                transition is List
-                    ? transition
-                        .map((t) => ConfigTransition.fromConfig(t, machine))
-                    : [ConfigTransition.fromConfig(transition, machine)]));
+  const ActionCollector(this.tree);
 
-  List<ConfigTransition<C, E>> getTransitionFor(Event<E> event) {
-    if (!transitions.containsKey(event.type)) {
-      return [ConfigNoTransition()];
-    }
-    return transitions[event.type];
-  }
+  List<Action<C, E>> get onEntry =>
+      tree.walkStateTree<Action<C, E>>((StateNode<C, E> node) => node.onEntry);
+
+  List<Action<C, E>> get onExit =>
+      tree.walkStateTree<Action<C, E>>((StateNode<C, E> node) => node.onExit);
+
+  List<Activity<C, E>> get activities => tree
+      .walkStateTree<Activity<C, E>>((StateNode<C, E> node) => node.onActive);
+
+  List<Action<C, E>> entriesFromTransition(StateTreeNode<C, E> oldTree) =>
+      tree.walkStateTree<Action<C, E>>((StateNode<C, E> node) =>
+          oldTree.hasBranch(node) ? [] : node.onEntry);
+
+  List<Action<C, E>> exitsFromTransition(StateTreeNode<C, E> oldTree) =>
+      tree.walkStateTree<Action<C, E>>(
+          (StateNode<C, E> node) => oldTree.hasBranch(node) ? [] : node.onExit);
 }
 
-class ConfigState<C, E> {
-  List<Action<C, E>> entries;
-  List<Action<C, E>> exits;
-  ConfigTransitions<C, E> transitions;
-
-  ConfigState();
-
-  ConfigState.fromConfig(dynamic state, Machine<C, E> machine)
-      : this.entries =
-            machine != null ? machine.getActions(state['entry']) : [],
-        this.exits = machine != null ? machine.getActions(state['exit']) : [],
-        this.transitions =
-            ConfigTransitions.fromConfig(state['on'] ?? {}, machine);
-
-  State<C, E> transition(
-      State<C, E> state, Event<E> event, StateResolver<C, E> resolver) {
-    var matchingTransitions = transitions.getTransitionFor(event).skipWhile(
-        (transition) => transition.doesNotMatch(state.context, event));
-    return (matchingTransitions.isEmpty
-            ? ConfigNoTransition<C, E>()
-            : matchingTransitions.first)
-        .transition(state, event, resolver, exits);
-  }
-}
-
-typedef StateResolver<C, E> = ConfigState<C, E> Function(String target);
-
-class ConfigStates<C, E> {
-  Map<String, ConfigState<C, E>> states;
-  String id;
-
-  ConfigStates(this.states);
-
-  ConfigStates.fromConfig(Map<String, dynamic> states,
-      {Machine<C, E> machine, String this.id})
-      : this.states = states.map((String key, dynamic state) =>
-            MapEntry(key, ConfigState.fromConfig(state, machine)));
-
-  ConfigState<C, E> resolveTarget(String target) {
-    if (!states.containsKey(target)) {
-      assert(states.containsKey(target),
-          "State ${target} not found on machine${id}.");
-      return ConfigState();
-    } else {
-      return states[target];
-    }
-  }
-
-  State<C, E> transition(State<C, E> state, Event<E> event) {
-    if (!states.containsKey(state.value)) {
-      assert(states.containsKey(state.value),
-          "State ${state.value} not found on machine${id}.");
-      return ConfigNoTransition()
-          .transition(state, event, this.resolveTarget, []);
-    } else {
-      return states[state.value].transition(state, event, this.resolveTarget);
-    }
-  }
-}
-
-class Config<C, E> {
-  String id;
-  String initial;
-  Map<String, dynamic> context;
-  ConfigStates<C, E> states;
-
-  Config.fromConfig(Map<String, dynamic> config, {Machine<C, E> machine})
-      : this.initial = config['initial'] ?? '',
-        this.id = config['id'] ?? '',
-        this.context = config['context'] ?? {},
-        this.states = ConfigStates.fromConfig(config['states'],
-            machine: machine, id: config['id'] ?? '');
-
-  State<C, E> transition(State<C, E> state, Event<E> event) {
-    return states.transition(state, event);
-  }
-}
+//***********************************************
+// STATE TREE
+//***********************************************
 
 typedef StateMatcher = bool Function(String);
 
-StateMatcher createStateMatcher(String value) {
-  return (String stateValue) => stateValue == value;
+abstract class StateTreeType<C, E> {
+  const StateTreeType();
+
+  Transition<C, E> transition(
+      StateNode<C, E> node, State<C, E> state, Event<E> event);
+
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker);
+
+  List<String> toAscii({num level = 0, String key = ""});
+
+  dynamic toStateValue();
+
+  bool hasBranch(StateNode<C, E> matchingNode);
+
+  StateTreeNode<C, E> getBranch(StateNode<C, E> matchingNode);
+
+  bool get isLeaf;
 }
 
-class Machine<C, E> {
-  final Config<C, E> config;
+class StateTreeLeaf<C, E> extends StateTreeType<C, E> {
+  const StateTreeLeaf();
+
+  @override
+  Transition<C, E> transition(
+          StateNode<C, E> node, State<C, E> state, Event<E> event) =>
+      node.next(state, event);
+
+  @override
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) => const [];
+
+  @override
+  bool get isLeaf => true;
+
+  bool hasBranch(StateNode<C, E> matchingNode) => false;
+
+  StateTreeNode<C, E> getBranch(StateNode<C, E> matchingNode) => null;
+
+  @override
+  List<String> toAscii({num level = 0, String key = ""}) =>
+      ["|-o ${key}".padLeft(level + key.length + 3)];
+
+  @override
+  dynamic toStateValue() =>
+      throw Exception("Leafs do not contribute to state value.");
+}
+
+class StateTreeParallel<C, E> extends StateTreeType<C, E> {
+  final List<StateTreeNode<C, E>> children;
+
+  const StateTreeParallel(this.children);
+
+  //implement
+  @override
+  Transition<C, E> transition(
+          StateNode<C, E> node, State<C, E> state, Event<E> event) =>
+      NoTransition<C, E>();
+
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) =>
+      children.expand<T>((child) => child.walkStateTree<T>(walker)).toList();
+
+  @override
+  bool get isLeaf =>
+      children.fold(true, (result, child) => result && child.isLeaf);
+
+  bool hasBranch(StateNode<C, E> matchingNode) =>
+      children.any((child) => child.hasBranch(matchingNode));
+
+  StateTreeNode<C, E> getBranch(StateNode<C, E> matchingNode) {
+    for (var i = 0; i < children.length; i++) {
+      if (children[i].matches(matchingNode)) {
+        return children[i];
+      } else if (children[i].hasBranch(matchingNode)) {
+        return children[i].getBranch(matchingNode);
+      }
+    }
+    return null;
+  }
+
+  List<String> toAscii({num level = 0, String key = ""}) => children
+      .expand<String>((child) => ([
+            "|- ${key}".padLeft(level + key.length + 3)
+          ] +
+          child.toAscii(level: level + 1)))
+      .toList();
+
+  @override
+  dynamic toStateValue() => this.children.map((child) => child.toStateValue());
+}
+
+class StateTreeCompound<C, E> extends StateTreeType<C, E> {
+  final StateTreeNode<C, E> child;
+
+  const StateTreeCompound(this.child);
+
+  // implement
+  @override
+  Transition<C, E> transition(
+      StateNode<C, E> node, State<C, E> state, Event<E> event) {
+    Transition<C, E> childTransition = child.resolveTransition(state, event);
+    if (childTransition is NoTransition<C, E>) {
+      return node.next(state, event);
+    }
+    return childTransition;
+  }
+
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) =>
+      child.walkStateTree<T>(walker);
+
+  @override
+  bool get isLeaf => child.isLeaf;
+
+  bool hasBranch(StateNode<C, E> matchingNode) => child.hasBranch(matchingNode);
+
+  StateTreeNode<C, E> getBranch(StateNode<C, E> matchingNode) {
+    if (child.matches(matchingNode)) {
+      return child;
+    }
+    return null;
+  }
+
+  @override
+  List<String> toAscii({num level = 0, String key = ""}) =>
+      ["|- ${key}".padLeft(level + key.length + 3)] +
+      child.toAscii(level: level + 1);
+
+  @override
+  dynamic toStateValue() =>
+      child.isLeaf ? child.node.key : child.toStateValue();
+}
+
+typedef StateTreeWalk<T, C, E> = List<T> Function(StateNode<C, E>);
+
+class StateTreeNode<C, E> {
+  final StateNode<C, E> node;
+  final StateTreeType<C, E> type;
+
+  final Logger _log;
+
+  const StateTreeNode(this.node, this.type, {log}) : this._log = log;
+
+  log(Level logLevel, dynamic message) =>
+      _log != null ? _log.log(logLevel, message) : null;
+
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) =>
+      walker(node) + type.walkStateTree<T>(walker);
+
+  Transition<C, E> resolveTransition(State<C, E> state, Event<E> event) {
+    log(Level.FINE,
+        () => "${toString()}\n resolving transition in response to ${event}");
+
+    return type.transition(node, state, event);
+  }
+
+  State<C, E> transition(State<C, E> state, Event<E> event) {
+    Transition<C, E> targetTransition = resolveTransition(state, event);
+
+    if (targetTransition is NoTransition) {
+      log(
+          Level.FINE,
+          () =>
+              "${toString()}\n resolved to NO TRANSITION in response to ${event}");
+
+      // TODO: Check if sufficient (changed needs rewrite?). Probably just clone.
+      return state;
+    } else {
+      StateNode<C, E> entryNode = targetTransition.getTarget();
+
+      log(
+          Level.FINE,
+          () =>
+              "${toString()}\n selected target node ${entryNode} for entering after transition");
+
+      StateTreeNode<C, E> entryTree = entryNode.transitionFromTree(state.value);
+
+      log(
+          Level.FINE,
+          () =>
+              "${toString()}\n resolved to \n${entryTree}\n in response to ${event}");
+
+      ActionCollector<C, E> actionCollector = ActionCollector<C, E>(entryTree);
+      List<Action<C, E>> entryActions =
+          actionCollector.entriesFromTransition(state.value);
+      List<Action<C, E>> exitActions =
+          actionCollector.exitsFromTransition(state.value);
+
+      List<Action<C, E>> allActions =
+          exitActions + targetTransition.actions + entryActions;
+
+      return State(entryTree,
+          context: allActions.fold<C>(state.context,
+              (C oldContext, Action<C, E> action) {
+            if (action is ActionAssign<C, E>) {
+              return action.assign(oldContext, event);
+            } else {
+              return oldContext;
+            }
+          }),
+          actions:
+              allActions.where((action) => !(action is ActionAssign)).toList(),
+          activities: {for (var a in actionCollector.activities) a.type: true},
+          changed: !allActions.isEmpty ||
+              allActions.fold<bool>(
+                  false,
+                  (bool changed, Action<C, E> action) =>
+                      changed || (action is ActionAssign)));
+    }
+  }
+
+  bool matches(StateNode<C, E> matchingNode) => matchingNode == node;
+
+  bool hasBranch(StateNode<C, E> matchingNode) =>
+      matches(matchingNode) || type.hasBranch(matchingNode);
+
+  StateTreeNode<C, E> getBranch(StateNode<C, E> matchingNode) =>
+      matches(matchingNode) ? this : type.getBranch(matchingNode);
+
+  List<String> toAscii({num level = 0}) =>
+      type.toAscii(level: level + 1, key: node.key);
+
+  dynamic toStateValue() => type.toStateValue();
+
+  bool get isLeaf => type is StateTreeLeaf<C, E>;
+
+  dynamic toOptionalStateValue() => isLeaf ? node.key : toStateValue();
+
+  @override
+  String toString() {
+    String tree = toAscii().join("\n");
+    return "${StateTreeNode}(${node.id}) of tree \n${tree}";
+  }
+}
+
+//***********************************************
+// MACHINE
+//***********************************************
+
+abstract class NodeType<C, E> {
+  final String key;
+  final bool _strict;
+
+  const NodeType(this.key, {strict = false}) : this._strict = strict;
+
+  bool get isLeafNode => true;
+  bool get ifStrict => !_strict;
+
+  StateTreeType<C, E> transitionFromTree(
+          StateTreeNode<C, E> initialStateTreeNode,
+          {StateTreeNode<C, E> oldTree,
+          StateTreeNode<C, E> childBranch}) =>
+      StateTreeLeaf<C, E>();
+
+  StateTreeType<C, E> selectStateTree(
+          {String key, StateTreeNode<C, E> childBranch}) =>
+      StateTreeLeaf<C, E>();
+
+  StateNode<C, E> selectTargetNode(String key) => null;
+}
+
+class NodeTypeAtomic<C, E> extends NodeType<C, E> {
+  const NodeTypeAtomic(key, {strict = false}) : super(key, strict: strict);
+}
+
+class NodeTypeFinal<C, E> extends NodeType<C, E> {
+  const NodeTypeFinal(key, {strict = false}) : super(key, strict: strict);
+}
+
+class NodeTypeHistory<C, E> extends NodeType<C, E> {
+  const NodeTypeHistory(key, {strict = false}) : super(key, strict: strict);
+}
+
+class NodeTypeParallel<C, E> extends NodeType<C, E> {
+  final Map<String, StateNode<C, E>> states;
+
+  const NodeTypeParallel(key, {this.states, strict = false})
+      : super(key, strict: strict);
+
+  @override
+  bool get isLeafNode => false;
+
+  @override
+  StateTreeType<C, E> transitionFromTree(
+          StateTreeNode<C, E> initialStateTreeNode,
+          {StateTreeNode<C, E> oldTree,
+          StateTreeNode<C, E> childBranch}) =>
+      StateTreeParallel<C, E>(
+          states.values.map<StateTreeNode<C, E>>((StateNode<C, E> stateNode) {
+        if (childBranch != null && childBranch.matches(stateNode)) {
+          return childBranch;
+        } else if (oldTree.hasBranch(stateNode)) {
+          return oldTree.getBranch(stateNode);
+        }
+        return stateNode.initialStateTreeNode;
+      }).toList());
+
+  @override
+  StateTreeType<C, E> selectStateTree(
+          {String key, StateTreeNode<C, E> childBranch}) =>
+      StateTreeParallel<C, E>(
+          states.values.map<StateTreeNode<C, E>>((StateNode<C, E> stateNode) {
+        if (childBranch.matches(stateNode)) {
+          return childBranch;
+        }
+        return stateNode.initialStateTreeNode;
+      }).toList());
+}
+
+class NodeTypeCompound<C, E> extends NodeType<C, E> {
+  final Map<String, StateNode<C, E>> states;
+
+  const NodeTypeCompound(key, {this.states, strict})
+      : super(key, strict: strict);
+
+  @override
+  bool get isLeafNode => false;
+
+  @override
+  StateTreeType<C, E> transitionFromTree(
+      StateTreeNode<C, E> initialStateTreeNode,
+      {StateTreeNode<C, E> oldTree,
+      StateTreeNode<C, E> childBranch}) {
+    if (childBranch != null) {
+      return StateTreeCompound(childBranch);
+    }
+    return StateTreeCompound(initialStateTreeNode);
+  }
+
+  @override
+  StateTreeType<C, E> selectStateTree(
+      {String key, StateTreeNode<C, E> childBranch}) {
+    if (childBranch != null) {
+      return StateTreeCompound(childBranch);
+    }
+    if (key != null) {
+      if (states.containsKey(key)) {
+        return StateTreeCompound(states[key].initialStateTreeNode);
+      }
+      throw Exception("${key} is missing on substates!");
+    }
+    if (states.keys.length > 0) {
+      return StateTreeCompound(states[states.keys.first].initialStateTreeNode);
+    }
+
+    assert(ifStrict || states.keys.length < 2,
+        "You provided no valid initial state key for a compound node with several substates!");
+
+    return StateTreeLeaf();
+  }
+
+  @override
+  StateNode<C, E> selectTargetNode(String key) {
+    if (states.containsKey(key)) {
+      return states[key];
+    }
+    assert(ifStrict, "${key} is missing on substates!");
+
+    return null;
+  }
+}
+
+typedef LazyAccess<T> = T Function();
+
+typedef LazyMapAccess<T> = T Function(String key);
+
+class SideEffects<C, E> {
+  final SideEffects<C, E> parent;
 
   final Map<String, Action<C, E>> actions;
   final Map<String, ActionExecute<C, E>> executions;
   final Map<String, ActionAssign<C, E>> assignments;
-
+  final Map<String, Activity<C, E>> activities;
   final Map<String, Guard<C, E>> guards;
 
-  final ContextFactory<C> contextFactory;
+  final bool _ifStrict;
 
-  const Machine(
-      {this.config,
-      this.contextFactory,
+  const SideEffects(
+      {this.parent,
       this.actions = const {},
-      this.executions = const {},
       this.assignments = const {},
-      this.guards = const {}});
-
-  Machine<C, E> configure(Map<String, dynamic> config) => Machine<C, E>(
-      config: Config<C, E>.fromConfig(config, machine: this),
-      actions: actions,
-      executions: executions,
-      assignments: assignments,
-      guards: guards,
-      contextFactory: contextFactory);
-
-  Machine<C, E> action(String action) => Machine<C, E>(
-      config: config,
-      actions: {...actions, action: Action<C, E>(action)},
-      executions: executions,
-      assignments: assignments,
-      guards: guards,
-      contextFactory: contextFactory);
-
-  Machine<C, E> execution(String action, ActionExecution<C, E> exec) =>
-      Machine<C, E>(
-          config: config,
-          actions: actions,
-          executions: {
-            ...executions,
-            action: ActionExecute<C, E>(action, exec)
-          },
-          assignments: assignments,
-          guards: guards,
-          contextFactory: contextFactory);
-
-  Machine<C, E> assignment(String action, ActionAssignment<C, E> assignment) =>
-      Machine<C, E>(
-          config: config,
-          actions: actions,
-          executions: executions,
-          assignments: {...assignments, action: ActionAssign<C, E>(assignment)},
-          guards: guards,
-          contextFactory: contextFactory);
-
-  Machine<C, E> guard(String name, GuardCondition<C, E> condition) =>
-      Machine<C, E>(
-          config: config,
-          actions: actions,
-          executions: executions,
-          assignments: assignments,
-          guards: {...guards, name: GuardConditional<C, E>(name, condition)},
-          contextFactory: contextFactory);
-
-  State<C, E> get initialState =>
-      config.initial != null && config.states.states.containsKey(config.initial)
-          ? State<C, E>(config.initial,
-              actions: config.states.states[config.initial].entries,
-              context: !config.context.isEmpty
-                  ? contextFactory.fromMap(config.context)
-                  : null,
-              matches: (String stateValue) => stateValue == config.initial)
-          : null;
-
-  Action<C, E> operator [](String action) {
-    if (actions.containsKey(action)) {
-      return actions[action];
-    } else if (executions.containsKey(action)) {
-      return executions[action];
-    } else if (assignments.containsKey(action)) {
-      return assignments[action];
-    }
-    assert(false, "Action ${action} missing in action map");
-    return Action("xstate.invalid");
-  }
+      this.activities = const {},
+      this.executions = const {},
+      this.guards = const {},
+      strict = false})
+      : this._ifStrict = !strict;
 
   List<Action<C, E>> getActions(dynamic action) {
     if (action is List) {
       return action
           .expand<Action<C, E>>((single) => getActions(single))
           .toList();
+    } else if (action is Action<C, E>) {
+      return [action];
+    } else if (action is ActionExecution<C, E>) {
+      return [ActionExecute<C, E>(action.toString(), action)];
+    } else if (action is ActionAssignment<C, E>) {
+      return [ActionAssign<C, E>(action)];
     } else if (action == null) {
       return [];
     } else if (action is String) {
       return [this[action]];
     }
+    assert(_ifStrict, "Action ${action} is not a valid action definition");
+
     return [];
   }
 
-  Guard<C, E> getGuard(String name) {
-    assert(guards.containsKey(name),
-        "Guard ${name} missing in guard map ${guards}");
-    return guards[name];
+  Action<C, E> getAction(String action) {
+    if (actions.containsKey(action)) {
+      return actions[action];
+    } else if (executions.containsKey(action)) {
+      return executions[action];
+    } else if (assignments.containsKey(action)) {
+      return assignments[action];
+    } else if (parent != null) {
+      return parent[action];
+    }
+
+    assert(_ifStrict, "Action ${action} missing in action map");
+    return Action<C, E>(action);
+  }
+
+  Action<C, E> operator [](String action) => getAction(action);
+
+  List<Activity<C, E>> getActivities(dynamic activity) {
+    if (activity is List) {
+      return activity
+          .expand<Activity<C, E>>((single) => getActivities(single))
+          .toList();
+    } else if (activity is Activity<C, E>) {
+      return [activity];
+    } else if (activity == null) {
+      return [];
+    } else if (activity is String) {
+      return [getActivity(activity)];
+    }
+    return [];
+  }
+
+  Activity<C, E> getActivity(String activity) {
+    if (activities.containsKey(activity)) {
+      return activities[activity];
+    } else if (parent != null) {
+      return parent.getActivity(activity);
+    }
+
+    assert(_ifStrict, "Activity ${activity} missing in activity map");
+    return Activity<C, E>(activity);
+  }
+
+  Guard<C, E> getGuard(String guard) {
+    if (guards.containsKey(guard)) {
+      return guards[guard];
+    } else if (parent != null) {
+      return parent.getGuard(guard);
+    }
+
+    assert(_ifStrict, "Guard ${guard} missing in guard map ${guards}");
+    return GuardMatches<C, E>();
+  }
+}
+
+class TreeAccess<C, E> {
+  final LazyAccess<StateNode<C, E>> _getParent;
+  final LazyAccess<StateNode<C, E>> getRoot;
+
+  const TreeAccess(this.getRoot, {getParent}) : this._getParent = getParent;
+
+  StateNode<C, E> get parent => _getParent == null ? _getParent : _getParent();
+  StateNode<C, E> get root => getRoot == null ? getRoot : getRoot();
+
+  List<String> get path => parent == null ? [] : parent.path;
+
+  bool get hasParent => _getParent == null;
+
+  TreeAccess<C, E> clone({LazyAccess<StateNode<C, E>> newGetParent}) =>
+      TreeAccess<C, E>(this.getRoot, getParent: newGetParent);
+}
+
+class StateNode<C, E> {
+  final String id;
+  final List<String> path;
+  final String delimiter;
+
+  final TreeAccess<C, E> tree;
+  final SideEffects<C, E> sideEffects;
+
+  final Map<String, List<Transition<C, E>>> transitions;
+  final List<Action<C, E>> onEntry;
+  final List<Action<C, E>> onExit;
+  final List<Activity<C, E>> onActive;
+  final StateTreeType<C, E> initialStateTree;
+
+  final NodeType<C, E> type;
+
+  final C context;
+
+  final Map<String, dynamic> config;
+
+  final bool strict;
+
+  final Logger _log;
+
+  const StateNode(
+      {this.config,
+      id,
+      this.delimiter,
+      this.path,
+      this.type,
+      this.tree,
+      this.sideEffects,
+      this.transitions = const {},
+      this.onEntry = const [],
+      this.onExit = const [],
+      this.onActive = const [],
+      this.initialStateTree = null,
+      this.context = null,
+      this.strict = false,
+      log})
+      : this._log = log,
+        this.id = id,
+        assert(!strict || config == null || id != "",
+            "You provided no ID for the machine!");
+
+  log(Level logLevel, dynamic message) =>
+      _log != null ? _log.log(logLevel, message) : null;
+
+  StateNode<C, E> get parent => tree.parent;
+  StateNode<C, E> get root => tree.root;
+  Action<C, E> operator [](String action) => sideEffects[action];
+
+  String get key => type.key;
+
+  State<C, E> get initialState {
+    ActionCollector<C, E> collector =
+        ActionCollector(this.initialStateTreeNode);
+    return State<C, E>(this.initialStateTreeNode,
+        actions: collector.onEntry,
+        activities: {for (var a in collector.activities) a.type: true},
+        context: context);
+  }
+
+  StateTreeNode<C, E> get initialStateTreeNode =>
+      StateTreeNode<C, E>(this, initialStateTree, log: Logger("StateTreeNode"));
+
+  StateTreeNode<C, E> transitionFromTree(StateTreeNode<C, E> oldTree,
+      {StateTreeNode<C, E> childBranch}) {
+    if (childBranch == null) {
+      // Entry into target node
+      if (oldTree.hasBranch(this)) {
+        childBranch = oldTree.getBranch(this);
+      }
+    }
+    StateTreeNode<C, E> thisAsChildBranch = StateTreeNode<C, E>(
+        this,
+        type.transitionFromTree(initialStateTreeNode,
+            oldTree: oldTree, childBranch: childBranch),
+        log: Logger("StateTreeNode"));
+    return parent == null
+        ? childBranch
+        : parent.transitionFromTree(oldTree, childBranch: thisAsChildBranch);
+  }
+
+  StateNode<C, E> selectTargetNode(String key) {
+    StateNode<C, E> target = type.selectTargetNode(key) ?? this;
+
+    log(Level.FINE,
+        () => "${toString()} selecting node ${key} as \"${target}\"");
+
+    return target;
+  }
+
+  StateTreeNode<C, E> select(String key, {StateTreeNode<C, E> childBranch}) {
+    log(
+        Level.FINE,
+        () =>
+            "${toString()} selecting branch ${key} with child branch \"${childBranch}\"");
+
+    StateTreeNode<C, E> thisAsChildBranch = StateTreeNode<C, E>(
+        this, type.selectStateTree(key: key, childBranch: childBranch),
+        log: Logger("StateTreeNode"));
+
+    log(Level.FINE,
+        () => "${toString()} selected child branch \n${thisAsChildBranch}");
+
+    if (parent == null) {
+      return thisAsChildBranch;
+    }
+
+    StateTreeNode<C, E> fullBranch =
+        parent.select(type.key, childBranch: thisAsChildBranch);
+
+    log(
+        Level.FINE,
+        () =>
+            "${toString()} selected full branch \n${fullBranch}\nfrom parent ${parent.toString()}");
+
+    return fullBranch;
   }
 
   State<C, E> transition(State<C, E> state, Event<E> event) {
-    return config.transition(state, event);
+    log(Level.FINE, () => "${toString()} transitioning on ${event.toString()}");
+
+    return state.value.transition(state, event);
+  }
+
+  Transition<C, E> next(State<C, E> state, Event<E> event) {
+    var matchingTransitions = getTransitionFor(event).skipWhile(
+        (transition) => transition.doesNotMatch(state.context, event));
+    if (!matchingTransitions.isEmpty) {
+      return matchingTransitions.first;
+    }
+    return NoTransition<C, E>();
+  }
+
+  List<Transition<C, E>> getTransitionFor(Event<E> event) {
+    if (!transitions.containsKey(event.type)) {
+      return <Transition<C, E>>[];
+    }
+    return transitions[event.type];
+  }
+
+  @override
+  String toString() => "${StateNode}(${id})";
+}
+
+//***********************************************
+// SETUP
+//***********************************************
+
+class Setup<C, E> {
+  bool _strict;
+
+  bool get _ifStrict => !_strict;
+
+  final Logger _log = Logger("Setup");
+
+  StateNode<C, E> machine(Map<String, dynamic> config,
+      {ContextFactory<C> contextFactory,
+      Map<String, Action<C, E>> actions,
+      Map<String, ActionExecute<C, E>> executions,
+      Map<String, ActionAssign<C, E>> assignments,
+      Map<String, Activity<C, E>> activities,
+      Map<String, Guard<C, E>> guards}) {
+    setStrict(config);
+
+    StateNode<C, E> root;
+
+    StateNode<C, E> getRoot() => root;
+
+    SideEffects<C, E> rootSideEffects = SideEffects<C, E>(
+        actions: actions,
+        executions: executions,
+        assignments: assignments,
+        activities: activities,
+        guards: guards,
+        strict: _strict);
+
+    TreeAccess<C, E> treeAccess = TreeAccess<C, E>(getRoot);
+
+    root = configure(config,
+        contextFactory: contextFactory,
+        parentSideEffects: rootSideEffects,
+        treeAccess: treeAccess);
+
+    return root;
+  }
+
+  setStrict(Map<String, dynamic> config) {
+    _strict = config.containsKey('strict') ? config['strict'] as bool : false;
+  }
+
+  StateNode<C, E> configure(Map<String, dynamic> config,
+      {ContextFactory<C> contextFactory,
+      String key,
+      TreeAccess<C, E> treeAccess,
+      LazyAccess<StateNode<C, E>> getRoot,
+      SideEffects<C, E> parentSideEffects}) {
+    StateNode<C, E> node;
+
+    LazyAccess<StateNode<C, E>> getParent = () => node;
+
+    TreeAccess<C, E> parentTreeAccess =
+        treeAccess.clone(newGetParent: getParent);
+
+    NodeType<C, E> type = configureNodeType(
+      config,
+      parentTreeAccess,
+      key: key,
+    );
+
+    SideEffects<C, E> sideEffects =
+        SideEffects<C, E>(parent: parentSideEffects, strict: _strict);
+
+    List<String> path = parentTreeAccess.path + [type.key];
+
+    String stateDelimiter = config['delimiter'] ??
+        (parentTreeAccess.hasParent ? parentTreeAccess.parent.delimiter : '.');
+
+    node = StateNode<C, E>(
+        config: config,
+        delimiter: stateDelimiter,
+        path: path,
+        id: (config['id'] ?? path.join(stateDelimiter) ?? "(machine)")
+            as String,
+        type: type,
+        tree: treeAccess,
+        transitions: config['on'] != null
+            ? configureTransitions(config['on'], sideEffects, treeAccess)
+            : const {},
+        onEntry: sideEffects.getActions(config['onEntry']),
+        onExit: sideEffects.getActions(config['onExit']),
+        onActive: sideEffects.getActivities(config['activities']),
+        initialStateTree: type.selectStateTree(key: config["initial"]),
+        context: contextFactory != null && !config['context'].isEmpty
+            ? contextFactory.fromMap(config['context'])
+            : null,
+        log: Logger("StateNode"));
+
+    return node;
+  }
+
+  NodeType<C, E> configureNodeType(
+      Map<String, dynamic> config, TreeAccess<C, E> treeAccess,
+      {String key}) {
+    String nodeKey =
+        (config["key"] ?? key ?? config["id"] ?? "(machine)") as String;
+    if (config.containsKey("type")) {
+      switch (config["type"]) {
+        case "final":
+          return NodeTypeFinal(nodeKey, strict: _strict);
+        case "history":
+          return NodeTypeHistory(nodeKey, strict: _strict);
+        case "atomic":
+          return NodeTypeAtomic(nodeKey, strict: _strict);
+        case "compound":
+          return configureSubNodes(config, "compound", nodeKey, treeAccess);
+        case "parallel":
+          return configureSubNodes(config, "parallel", nodeKey, treeAccess);
+        default:
+          assert(_ifStrict, "Node type \"${config['type']}\" not supported!");
+          return NodeTypeFinal(nodeKey, strict: _strict);
+      }
+    }
+
+    if (config.containsKey('states')) {
+      return configureSubNodes(config, "compound", nodeKey, treeAccess);
+    }
+    return NodeTypeAtomic(nodeKey, strict: _strict);
+  }
+
+  NodeType<C, E> configureSubNodes(Map<String, dynamic> config, String type,
+      String nodeKey, TreeAccess<C, E> treeAccess) {
+    assert(
+        !_strict ||
+            config.containsKey("states") ||
+            (config["states"] is Map<String, dynamic> &&
+                !config["states"].isEmpty()),
+        "You provided no sub nodes for a machine of type \"${type}\"!");
+
+    Map<String, StateNode<C, E>> substates = config.containsKey('states')
+        ? config['states'].map<String, StateNode<C, E>>(
+            (String key, dynamic state) => MapEntry<String, StateNode<C, E>>(
+                key,
+                configure(Map<String, dynamic>.from(state),
+                    key: key, treeAccess: treeAccess)))
+        : const {};
+
+    if (type == "parallel") {
+      return NodeTypeParallel(nodeKey, states: substates, strict: _strict);
+    }
+    return NodeTypeCompound(nodeKey, states: substates, strict: _strict);
+  }
+
+  Map<String, List<Transition<C, E>>> configureTransitions(dynamic transitions,
+          SideEffects<C, E> sideEffects, TreeAccess<C, E> treeAccess) =>
+      transitions.map<String, List<Transition<C, E>>>((String key,
+              dynamic transition) =>
+          MapEntry<String, List<Transition<C, E>>>(
+              key,
+              transition is List
+                  ? transition
+                      .map<Transition<C, E>>((t) =>
+                          configureTransition(t, sideEffects, treeAccess))
+                      .toList()
+                  : [configureTransition(transition, sideEffects, treeAccess)]));
+
+  Transition<C, E> configureTransition(dynamic transition,
+          SideEffects<C, E> sideEffects, TreeAccess<C, E> treeAccess) =>
+      Transition<C, E>(
+          getTarget: _cache<StateNode<C, E>>(
+              this.resolveTarget(transition, treeAccess)),
+          actions: (transition is Map<String, dynamic>)
+              ? sideEffects.getActions(transition['actions'])
+              : [],
+          condition: (transition is Map<String, dynamic>)
+              ? sideEffects.getGuard(transition['cond'])
+              : GuardMatches<C, E>());
+
+  LazyAccess<StateNode<C, E>> resolveTarget(
+          dynamic transition, TreeAccess<C, E> treeAccess) =>
+      () {
+        dynamic target = (transition is Map<String, dynamic>)
+            ? transition['target']
+            : transition;
+
+        _log.log(
+            Level.FINE,
+            () =>
+                "Resolving target by asking ${treeAccess.parent} to select target \"${target}\"");
+
+        //TODO: Richer target definition (e.g. by node ID or multi-level)
+        StateNode<C, E> targetNode = treeAccess.parent.selectTargetNode(target);
+
+        _log.log(Level.FINE,
+            () => "Resolved target \"${target}\" to \"${targetNode}\"");
+
+        return targetNode;
+      };
+
+  LazyAccess<T> _cache<T>(LazyAccess<T> func) {
+    T _cache;
+
+    LazyAccess<T> cachedFunc = () {
+      if (_cache == null) {
+        _cache = func();
+      }
+
+      return _cache;
+    };
+
+    return cachedFunc;
   }
 }
+
+//***********************************************
+// INTERPRETER
+//***********************************************
 
 enum InterpreterStatus { NotStarted, Running, Stopped }
 
@@ -398,12 +1018,12 @@ typedef StateListener<C, E> = Function(State<C, E> state);
 class Interpreter<C, E> {
   static const INIT_EVENT = Event('xstate.init');
 
-  final Machine<C, E> machine;
+  final StateNode<C, E> machine;
   InterpreterStatus _status;
   List<StateListener<C, E>> _listeners = [];
   State<C, E> _currentState;
 
-  Interpreter(this.machine)
+  Interpreter(StateNode<C, E> this.machine)
       : _status = InterpreterStatus.NotStarted,
         _currentState = machine.initialState;
 
