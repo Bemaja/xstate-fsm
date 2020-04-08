@@ -1,6 +1,11 @@
 import 'package:test/test.dart';
-import 'package:logging/logging.dart';
 import 'package:xstate_fsm/xstate_fsm.dart';
+
+ActionStart start(String activity) =>
+    ActionStart(Activity(activity, (c, a) => () => {}));
+
+ActionStop stop(String activity) =>
+    ActionStop(Activity(activity, (c, a) => () => {}));
 
 void main() {
   var machine = Setup().machine({
@@ -32,23 +37,64 @@ void main() {
     }
   });
 
-  Logger.root.level = Level.ALL; // defaults to Level.INFO
-  Logger.root.onRecord.listen((record) {
-    print('${record.level.name}: ${record.time}: ${record.message}\n');
-  });
-
   group("Activities", () {
     test("initial state has initial activities", () {
       expect(machine.initialState.activities["fadeInGreen"], isNotNull);
     });
-    test("initial state has initial activities", () {
-      expect(machine.initialState.activities["fadeInGreen"], isNotNull);
+    test("identifies running activities", () {
+      var nextState = machine.transitionUntyped('yellow', 'TIMER');
+      expect(nextState.activities["activateCrosswalkLight"], isTrue);
     });
-    test("identifies start activities", () {
-      var nextState =
-          machine.transition(State(machine.select('yellow')), Event('TIMER'));
-      expect(nextState.activities["activateCrosswalkLight"], isNotNull);
-//        expect(nextState.actions).toEqual([start('activateCrosswalkLight')]);
+    test("identifies activities to be started", () {
+      var nextState = machine.transitionUntyped('yellow', 'TIMER');
+      expect(nextState.actions, equals([start('activateCrosswalkLight')]));
+    });
+    test("identifies started activities for child states", () {
+      var redWalkState = machine.transitionUntyped('yellow', 'TIMER');
+      var nextState = machine.transitionUntyped(redWalkState, 'PED_WAIT');
+
+      expect(nextState.activities["activateCrosswalkLight"], isTrue);
+      expect(nextState.activities["blinkCrosswalkLight"], isTrue);
+    });
+    test("identifies activities to be started for child states", () {
+      var redWalkState = machine.transitionUntyped('yellow', 'TIMER');
+      var nextState = machine.transitionUntyped(redWalkState, 'PED_WAIT');
+
+      expect(nextState.actions, equals([start('blinkCrosswalkLight')]));
+    });
+    test("identifies stopped activities for child states", () {
+      var redWalkState = machine.transitionUntyped('yellow', 'TIMER');
+      var redWaitState = machine.transitionUntyped(redWalkState, 'PED_WAIT');
+      var nextState = machine.transitionUntyped(redWaitState, 'PED_STOP');
+
+      expect(nextState.activities["activateCrosswalkLight"], isTrue);
+      expect(nextState.activities["blinkCrosswalkLight"], isFalse);
+    });
+    test("identifies activities to be stopped for child states", () {
+      var redWalkState = machine.transitionUntyped('yellow', 'TIMER');
+      var redWaitState = machine.transitionUntyped(redWalkState, 'PED_WAIT');
+      var nextState = machine.transitionUntyped(redWaitState, 'PED_STOP');
+
+      expect(nextState.actions, equals([stop('blinkCrosswalkLight')]));
+    });
+    test("identifies stopped activities for child states", () {
+      var redWalkState = machine.transitionUntyped('yellow', 'TIMER');
+      var redWaitState = machine.transitionUntyped(redWalkState, 'PED_WAIT');
+      var redStopState = machine.transitionUntyped(redWaitState, 'PED_STOP');
+      var nextState = machine.transitionUntyped(redStopState, 'TIMER');
+
+      expect(nextState.activities["activateCrosswalkLight"], isFalse);
+      expect(nextState.activities["blinkCrosswalkLight"], isFalse);
+      expect(nextState.activities["fadeInGreen"], isTrue);
+    });
+    test("identifies activities to be stopped for child states", () {
+      var redWalkState = machine.transitionUntyped('yellow', 'TIMER');
+      var redWaitState = machine.transitionUntyped(redWalkState, 'PED_WAIT');
+      var redStopState = machine.transitionUntyped(redWaitState, 'PED_STOP');
+      var nextState = machine.transitionUntyped(redStopState, 'TIMER');
+
+      expect(nextState.actions,
+          equals([stop('activateCrosswalkLight'), start('fadeInGreen')]));
     });
   });
 }
