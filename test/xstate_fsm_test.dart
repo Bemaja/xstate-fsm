@@ -2,6 +2,8 @@ import 'package:test/test.dart';
 import 'package:xstate_fsm/xstate_fsm.dart';
 import 'package:equatable/equatable.dart';
 
+import './util.dart';
+
 class LightContext extends Equatable {
   final num count;
   final String foo;
@@ -93,38 +95,37 @@ void main() {
     }
   };
 
-  var lightFSM = Machine<LightContext, LightEvent>()
-      .action("enterGreen")
-      .action("exitGreen")
-      .action("g-y 1")
-      .action("g-y 2")
-      .assignment(
-          "g-a 1",
-          (LightContext c, Event<LightEvent> e) =>
-              LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-      .assignment(
-          "g-a 2",
-          (LightContext c, Event<LightEvent> e) =>
-              LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-      .assignment(
-          "g-a 3",
-          (LightContext c, Event<LightEvent> e) =>
-              LightContext(count: c.count, foo: 'static', go: c.go))
-      .assignment(
-          "g-a 4",
-          (LightContext c, Event<LightEvent> e) =>
-              LightContext(count: c.count, foo: c.foo + '++', go: c.go))
-      .assignment(
-          "y-e 1",
-          (LightContext c, Event<LightEvent> e) =>
-              LightContext(count: c.count, foo: c.foo, go: false))
-      .assignment(
-          "y-o 1",
-          (LightContext c, Event<LightEvent> e) =>
-              LightContext(count: c.count + 1, foo: c.foo, go: c.go))
-      .guard("y-g 1",
-          (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2)
-      .configure(lightConfig, contextFactory: LightContextFactory());
+  var lightFSM = Setup<LightContext, LightEvent>()
+      .machine(lightConfig, contextFactory: LightContextFactory(), actions: {
+    "enterGreen": Action<LightContext, LightEvent>("enterGreen"),
+    "exitGreen": Action<LightContext, LightEvent>("exitGreen"),
+    "g-y 1": Action<LightContext, LightEvent>("g-y 1"),
+    "g-y 2": Action<LightContext, LightEvent>("g-y 2")
+  }, assignments: {
+    "g-a 1": ActionAssign<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) =>
+            LightContext(count: c.count + 1, foo: c.foo, go: c.go)),
+    "g-a 2": ActionAssign<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) =>
+            LightContext(count: c.count + 1, foo: c.foo, go: c.go)),
+    "g-a 3": ActionAssign<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) =>
+            LightContext(count: c.count, foo: 'static', go: c.go)),
+    "g-a 4": ActionAssign<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) =>
+            LightContext(count: c.count, foo: c.foo + '++', go: c.go)),
+    "y-e 1": ActionAssign<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) =>
+            LightContext(count: c.count, foo: c.foo, go: false)),
+    "y-o 1": ActionAssign<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) =>
+            LightContext(count: c.count + 1, foo: c.foo, go: c.go))
+  }, guards: {
+    "y-g 1": GuardConditional<LightContext, LightEvent>("y-g 1",
+        (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2)
+  });
+
+  debugLog(filterObservables: const [StateNode]);
 
   group('Machine', () {
     test('should return back the config object', () {
@@ -136,7 +137,7 @@ void main() {
     });
 
     test('should have the correct initial actions', () {
-      expect(lightFSM.initialState.actions, equals([lightFSM['enterGreen']]));
+      expect(lightFSM.initialState.actions, equals([Action('enterGreen')]));
     });
 
     test('should transition correctly', () {
@@ -237,7 +238,7 @@ void main() {
   });
 
   group('Interpreter', () {
-    var toggleMachine = Machine().configure({
+    var toggleMachine = Setup().machine({
       "initial": "active",
       "states": {
         "active": {
@@ -291,9 +292,11 @@ void main() {
       }
     };
 
-    var actionMachine = Machine().execution("action", (context, event) {
-      executed = true;
-    }).configure(actionConfig);
+    var actionMachine = Setup().machine(actionConfig, executions: {
+      "action": ActionExecute("action", (context, event) {
+        executed = true;
+      })
+    });
 
     var actionService = Interpreter(actionMachine).start();
 
@@ -317,9 +320,11 @@ void main() {
       }
     };
 
-    var actionMachine = Machine().execution("action", (context, event) {
-      executed = true;
-    }).configure(actionConfig);
+    var actionMachine = Setup().machine(actionConfig, executions: {
+      "action": ActionExecute("action", (context, event) {
+        executed = true;
+      })
+    });
 
     Interpreter(actionMachine).start();
 
