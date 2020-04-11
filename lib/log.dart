@@ -51,16 +51,17 @@ class Log {
     }
   }
 
-  static dynamic observe(dynamic object, List<Type> filterObservables) {
+  static dynamic observe(dynamic object, List<String> filterObservables) {
     if (object == null) {
       return null;
     }
     dynamic observed = (object as LogObject).observed;
+
     if (filterObservables.length == 0 ||
         filterObservables.fold(
             false,
-            (report, Type objectType) =>
-                (report || observed.runtimeType == objectType))) {
+            (report, String objectType) =>
+                (report || observed.runtimeType.toString() == objectType))) {
       return observed;
     }
     return null;
@@ -74,7 +75,7 @@ class Log {
   static void configure(
       {dynamic level = Level.INFO,
       bool stackTrace = false,
-      List<Type> filterObservables = const [],
+      List<String> filterObservables = const [],
       LogFormatter logFunction = logLine}) {
     if (level is String) {
       switch (level) {
