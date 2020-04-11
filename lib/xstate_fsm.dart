@@ -22,7 +22,6 @@ class State<C, E> {
   final List<Action<C, E>> actions;
   final C context;
   final bool changed;
-  final StateMatcher matches;
   final Map<String, bool> activities;
   final List<dynamic> children;
 
@@ -31,14 +30,16 @@ class State<C, E> {
       this.actions = const [],
       this.activities = const {},
       this.children = const [],
-      this.changed = false,
-      this.matches});
+      this.changed = false});
 
   static StateMatcher createStateMatcher(String value) {
     return (String stateValue) => stateValue == value;
   }
 
-  // matches: (String stateValue) => stateValue == initial)
+  bool matches(String stateValue) => stateValue == value.toStateValue();
+
+  @override
+  String toString() => this.value.toString();
 }
 
 abstract class ContextFactory<C> {
@@ -78,7 +79,11 @@ class ActionCollector<C, E> {
   const ActionCollector(this.tree, {this.log = const Log()});
 
   List<Action<C, E>> get onEntry =>
-      tree.walkStateTree<Action<C, E>>((StateNode<C, E> node) => node.onEntry);
+      tree.walkStateTree<Action<C, E>>((StateNode<C, E> node) {
+        log.finest(
+            this, () => "Collecting entry actions ${node.onEntry} on ${node}");
+        return node.onEntry;
+      });
 
   List<Action<C, E>> get onExit =>
       tree.walkStateTree<Action<C, E>>((StateNode<C, E> node) => node.onExit);
@@ -146,7 +151,9 @@ abstract class StateTreeType<C, E> {
 }
 
 class StateTreeLeaf<C, E> extends StateTreeType<C, E> {
-  const StateTreeLeaf();
+  final Log log;
+
+  const StateTreeLeaf({this.log = const Log()});
 
   @override
   Transition<C, E> transition(
@@ -154,7 +161,10 @@ class StateTreeLeaf<C, E> extends StateTreeType<C, E> {
       node.next(state, event);
 
   @override
-  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) => const [];
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) {
+    log.finest(this, () => "Walk tree ended => Reached leaf");
+    return const [];
+  }
 
   @override
   bool get isLeaf => true;
@@ -175,7 +185,9 @@ class StateTreeLeaf<C, E> extends StateTreeType<C, E> {
 class StateTreeParallel<C, E> extends StateTreeType<C, E> {
   final List<StateTreeNode<C, E>> children;
 
-  const StateTreeParallel(this.children);
+  final Log log;
+
+  const StateTreeParallel(this.children, {this.log = const Log()});
 
   //implement
   @override
@@ -183,8 +195,13 @@ class StateTreeParallel<C, E> extends StateTreeType<C, E> {
           StateNode<C, E> node, State<C, E> state, Event<E> event) =>
       NoTransition<C, E>();
 
-  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) =>
-      children.expand<T>((child) => child.walkStateTree<T>(walker)).toList();
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) {
+    List<T> result =
+        children.expand<T>((child) => child.walkStateTree<T>(walker)).toList();
+    log.finest(
+        this, () => "Walking tree over ${children.length} parallel children");
+    return result;
+  }
 
   @override
   bool get isLeaf =>
@@ -218,7 +235,9 @@ class StateTreeParallel<C, E> extends StateTreeType<C, E> {
 class StateTreeCompound<C, E> extends StateTreeType<C, E> {
   final StateTreeNode<C, E> child;
 
-  const StateTreeCompound(this.child);
+  final Log log;
+
+  const StateTreeCompound(this.child, {this.log = const Log()});
 
   // implement
   @override
@@ -231,8 +250,10 @@ class StateTreeCompound<C, E> extends StateTreeType<C, E> {
     return childTransition;
   }
 
-  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) =>
-      child.walkStateTree<T>(walker);
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) {
+    log.finest(this, () => "Walking tree to single child ${child.node}");
+    return child.walkStateTree<T>(walker);
+  }
 
   @override
   bool get isLeaf => child.isLeaf;
@@ -266,13 +287,42 @@ class StateTreeNode<C, E> {
 
   const StateTreeNode(this.node, this.type, {this.log = const Log()});
 
-  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) =>
-      walker(node) + type.walkStateTree<T>(walker);
+  List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) {
+    log.finest(this, () => "Walk tree delivering node ${node} to walker");
+    return walker(node) + type.walkStateTree<T>(walker);
+  }
 
   Transition<C, E> resolveTransition(State<C, E> state, Event<E> event) {
     log.fine(this, () => "Resolving transition in response to ${event}");
 
     return type.transition(node, state, event);
+  }
+
+  State<C, E> _buildNewState(StateTreeNode<C, E> tree,
+      List<Action<C, E>> actions, C oldContext, Event<E> event,
+      {Map<String, bool> stoppedActivities = const {},
+      List<Activity<C, E>> startedActivities = const []}) {
+    return State(tree,
+        context:
+            actions.fold<C>(oldContext, (C oldContext, Action<C, E> action) {
+          log.finest(this, () => "Applying $action if it is an assignment");
+          if (action is ActionAssign<C, E>) {
+            return action.assign(oldContext, event);
+          } else {
+            return oldContext;
+          }
+        }),
+        actions:
+            actions.where((action) => !(action is ActionAssign<C, E>)).toList(),
+        activities: {
+          for (var a in stoppedActivities.keys) a: false,
+          for (var b in startedActivities) b.type: true
+        },
+        changed: !actions.isEmpty ||
+            actions.fold<bool>(
+                false,
+                (bool changed, Action<C, E> action) =>
+                    changed || (action is ActionAssign)));
   }
 
   State<C, E> transition(State<C, E> state, Event<E> event) {
@@ -282,9 +332,22 @@ class StateTreeNode<C, E> {
       log.fine(this, () => "Resolved to NO TRANSITION in response to ${event}");
 
       // TODO: Check if sufficient (changed needs rewrite?). Probably just clone.
-      return state;
+      return _buildNewState(state.value, [], state.context, event);
     } else {
+      if (targetTransition.getTarget == null) {
+        log.fine(this, () => "Resolved to NO TRANSITION as getTarget is Null");
+
+        return _buildNewState(
+            state.value, targetTransition.actions, state.context, event);
+      }
       StateNode<C, E> entryNode = targetTransition.getTarget();
+
+      if (entryNode == null) {
+        log.fine(this, () => "Resolved to NO TRANSITION as target is Null");
+
+        return _buildNewState(
+            state.value, targetTransition.actions, state.context, event);
+      }
 
       log.fine(
           this,
@@ -317,17 +380,22 @@ class StateTreeNode<C, E> {
       log.finer(this, () => "Previous activities were ${state.activities}");
       log.finer(this, () => "New activities are ${actionCollector.activities}");
 
-      return State(entryTree,
+      return _buildNewState(entryTree, allActions, state.context, event,
+          stoppedActivities: state.activities,
+          startedActivities: actionCollector.activities);
+/*      return State(entryTree,
           context: allActions.fold<C>(state.context,
               (C oldContext, Action<C, E> action) {
+            log.finest(this, () => "Applying $action if it is an assignment");
             if (action is ActionAssign<C, E>) {
               return action.assign(oldContext, event);
             } else {
               return oldContext;
             }
           }),
-          actions:
-              allActions.where((action) => !(action is ActionAssign)).toList(),
+          actions: allActions
+              .where((action) => !(action is ActionAssign<C, E>))
+              .toList(),
           activities: {
             for (var a in state.activities.keys) a: false,
             for (var b in actionCollector.activities) b.type: true
@@ -336,7 +404,7 @@ class StateTreeNode<C, E> {
               allActions.fold<bool>(
                   false,
                   (bool changed, Action<C, E> action) =>
-                      changed || (action is ActionAssign)));
+                      changed || (action is ActionAssign)));*/
     }
   }
 
@@ -575,16 +643,21 @@ class StateNode<C, E> {
   String get key => type.key;
 
   State<C, E> get initialState {
-    ActionCollector<C, E> collector =
-        ActionCollector(this.initialStateTreeNode);
-    return State<C, E>(this.initialStateTreeNode,
+    log.finest(this, () => "Determine initial state");
+    StateTreeNode<C, E> initialTree = this.initialStateTreeNode;
+    ActionCollector<C, E> collector = ActionCollector(initialTree);
+    log.finer(this, () => "Collected initial actions ${collector.onEntry}");
+    return State<C, E>(initialTree,
         actions: collector.onEntry,
         activities: {for (var a in collector.activities) a.type: true},
         context: context);
   }
 
-  StateTreeNode<C, E> get initialStateTreeNode =>
-      StateTreeNode<C, E>(this, initialStateTree);
+  StateTreeNode<C, E> get initialStateTreeNode {
+    StateTreeNode<C, E> initial = StateTreeNode<C, E>(this, initialStateTree);
+    log.finest(this, () => "Initial tree is \n${initial}\n");
+    return initial;
+  }
 
   StateTreeNode<C, E> transitionFromTree(StateTreeNode<C, E> oldTree,
       {StateTreeNode<C, E> childBranch}) {
@@ -753,8 +826,10 @@ class Setup<C, E> {
       {ContextFactory<C> contextFactory,
       String key,
       TreeAccess<C, E> treeAccess,
-      LazyAccess<StateNode<C, E>> getRoot,
-      SideEffects<C, E> parentSideEffects}) {
+      SideEffects<C, E> parentSideEffects,
+      LazyAccess<StateNode<C, E>> getRoot}) {
+    checkValidKeys(config, validStateKeys);
+
     StateNode<C, E> node;
 
     LazyAccess<StateNode<C, E>> getParent = () => node;
@@ -762,14 +837,15 @@ class Setup<C, E> {
     TreeAccess<C, E> parentTreeAccess =
         treeAccess.clone(newGetParent: getParent);
 
+    SideEffects<C, E> sideEffects =
+        SideEffects<C, E>(parent: parentSideEffects, strict: _strict);
+
     NodeType<C, E> type = configureNodeType(
       config,
       parentTreeAccess,
+      parentSideEffects,
       key: key,
     );
-
-    SideEffects<C, E> sideEffects =
-        SideEffects<C, E>(parent: parentSideEffects, strict: _strict);
 
     List<String> path = parentTreeAccess.path + [type.key];
 
@@ -787,10 +863,17 @@ class Setup<C, E> {
         transitions: config['on'] != null
             ? configureTransitions(config['on'], sideEffects, treeAccess)
             : const {},
-        onEntry: sideEffects.getActions(config['onEntry']),
-        onExit: sideEffects.getActions(config['onExit']),
-        onActive: sideEffects.getActivities(config['activities']),
+        onEntry: config.containsKey('onEntry')
+            ? sideEffects.getActions(config['onEntry'])
+            : [],
+        onExit: config.containsKey('onExit')
+            ? sideEffects.getActions(config['onExit'])
+            : [],
+        onActive: config.containsKey('activities')
+            ? sideEffects.getActivities(config['activities'])
+            : [],
         initialStateTree: type.selectStateTree(key: config["initial"]),
+        sideEffects: sideEffects,
         context: contextFactory != null && !config['context'].isEmpty
             ? contextFactory.fromMap(config['context'])
             : null);
@@ -798,8 +881,8 @@ class Setup<C, E> {
     return node;
   }
 
-  NodeType<C, E> configureNodeType(
-      Map<String, dynamic> config, TreeAccess<C, E> treeAccess,
+  NodeType<C, E> configureNodeType(Map<String, dynamic> config,
+      TreeAccess<C, E> treeAccess, SideEffects<C, E> parentSideEffects,
       {String key}) {
     String nodeKey =
         (config["key"] ?? key ?? config["id"] ?? "(machine)") as String;
@@ -812,9 +895,11 @@ class Setup<C, E> {
         case "atomic":
           return NodeTypeAtomic(nodeKey, strict: _strict);
         case "compound":
-          return configureSubNodes(config, "compound", nodeKey, treeAccess);
+          return configureSubNodes(
+              config, "compound", nodeKey, treeAccess, parentSideEffects);
         case "parallel":
-          return configureSubNodes(config, "parallel", nodeKey, treeAccess);
+          return configureSubNodes(
+              config, "parallel", nodeKey, treeAccess, parentSideEffects);
         default:
           assert(_ifStrict, "Node type \"${config['type']}\" not supported!");
           return NodeTypeFinal(nodeKey, strict: _strict);
@@ -822,13 +907,18 @@ class Setup<C, E> {
     }
 
     if (config.containsKey('states')) {
-      return configureSubNodes(config, "compound", nodeKey, treeAccess);
+      return configureSubNodes(
+          config, "compound", nodeKey, treeAccess, parentSideEffects);
     }
     return NodeTypeAtomic(nodeKey, strict: _strict);
   }
 
-  NodeType<C, E> configureSubNodes(Map<String, dynamic> config, String type,
-      String nodeKey, TreeAccess<C, E> treeAccess) {
+  NodeType<C, E> configureSubNodes(
+      Map<String, dynamic> config,
+      String type,
+      String nodeKey,
+      TreeAccess<C, E> treeAccess,
+      SideEffects<C, E> parentSideEffects) {
     assert(
         !_strict ||
             config.containsKey("states") ||
@@ -841,7 +931,9 @@ class Setup<C, E> {
             (String key, dynamic state) => MapEntry<String, StateNode<C, E>>(
                 key,
                 configure(Map<String, dynamic>.from(state),
-                    key: key, treeAccess: treeAccess)))
+                    key: key,
+                    treeAccess: treeAccess,
+                    parentSideEffects: parentSideEffects)))
         : const {};
 
     if (type == "parallel") {
@@ -863,25 +955,29 @@ class Setup<C, E> {
                       .toList()
                   : [configureTransition(transition, sideEffects, treeAccess)]));
 
+  dynamic readTarget(dynamic transition) =>
+      (transition is Map<String, dynamic>) ? transition['target'] : transition;
+
   Transition<C, E> configureTransition(dynamic transition,
-          SideEffects<C, E> sideEffects, TreeAccess<C, E> treeAccess) =>
-      Transition<C, E>(
-          getTarget: _cache<StateNode<C, E>>(
-              this.resolveTarget(transition, treeAccess)),
-          actions: (transition is Map<String, dynamic>)
-              ? sideEffects.getActions(transition['actions'])
-              : [],
-          condition: (transition is Map<String, dynamic>)
-              ? sideEffects.getGuard(transition['cond'])
-              : GuardMatches<C, E>());
+      SideEffects<C, E> sideEffects, TreeAccess<C, E> treeAccess) {
+    dynamic target = readTarget(transition);
+    return Transition<C, E>(
+        getTarget: target == null
+            ? target
+            : _cache<StateNode<C, E>>(this.resolveTarget(target, treeAccess)),
+        actions: (transition is Map<String, dynamic> &&
+                transition['actions'] != null)
+            ? sideEffects.getActions(transition['actions'])
+            : [],
+        condition:
+            (transition is Map<String, dynamic> && transition['cond'] != null)
+                ? sideEffects.getGuard(transition['cond'])
+                : GuardMatches<C, E>());
+  }
 
   LazyAccess<StateNode<C, E>> resolveTarget(
-          dynamic transition, TreeAccess<C, E> treeAccess) =>
+          dynamic target, TreeAccess<C, E> treeAccess) =>
       () {
-        dynamic target = (transition is Map<String, dynamic>)
-            ? transition['target']
-            : transition;
-
         log.fine(
             this,
             () =>
@@ -908,6 +1004,26 @@ class Setup<C, E> {
     };
 
     return cachedFunc;
+  }
+
+  static List<String> validStateKeys = [
+    'id',
+    'initial',
+    'context',
+    'states',
+    'onEntry',
+    'onExit',
+    'on',
+    'delimiter',
+    'activities',
+    'delimiter',
+    'strict'
+  ];
+
+  void checkValidKeys(Map<String, dynamic> config, List<String> validKeys) {
+    assert(
+        _ifStrict || config.keys.every((String key) => validKeys.contains(key)),
+        "Node type \"${config['type']}\" not supported!");
   }
 }
 

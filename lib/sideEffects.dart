@@ -1,7 +1,7 @@
-import 'package:logging/logging.dart';
 import 'actions.dart';
 import 'activities.dart';
 import 'guards.dart';
+import 'log.dart';
 
 class SideEffects<C, E> {
   final SideEffects<C, E> parent;
@@ -13,7 +13,7 @@ class SideEffects<C, E> {
   final Map<String, Guard<C, E>> guards;
 
   final bool _ifStrict;
-  final Logger _log;
+  final Log log;
 
   const SideEffects(
       {this.parent,
@@ -23,15 +23,15 @@ class SideEffects<C, E> {
       this.executions = const {},
       this.guards = const {},
       strict = false,
-      log})
-      : this._log = log,
-        this._ifStrict = !strict;
-
-  log(Level logLevel, dynamic message) =>
-      _log != null ? _log.log(logLevel, message) : null;
+      this.log = const Log()})
+      : this._ifStrict = !strict;
 
   List<Action<C, E>> getActions(dynamic action) {
-    if (action is List) {
+    log.finer(this, () => "Fetching action ${action}");
+
+    if (action == null) {
+      return [];
+    } else if (action is List) {
       return action
           .expand<Action<C, E>>((single) => getActions(single))
           .toList();
@@ -52,11 +52,11 @@ class SideEffects<C, E> {
   }
 
   Action<C, E> getAction(String action) {
-    if (actions.containsKey(action)) {
+    if (actions != null && actions.containsKey(action)) {
       return actions[action];
-    } else if (executions.containsKey(action)) {
+    } else if (executions != null && executions.containsKey(action)) {
       return executions[action];
-    } else if (assignments.containsKey(action)) {
+    } else if (assignments != null && assignments.containsKey(action)) {
       return assignments[action];
     } else if (parent != null) {
       return parent[action];
@@ -69,17 +69,17 @@ class SideEffects<C, E> {
   Action<C, E> operator [](String action) => getAction(action);
 
   List<Activity<C, E>> getActivities(dynamic activity) {
-    log(Level.FINER, () => "Extracting activities from ${activity}");
+    log.finer(this, () => "Extracting activities from ${activity}");
 
     if (activity is List) {
       List<Activity<C, E>> activities = activity
           .expand<Activity<C, E>>((single) => getActivities(single))
           .toList();
 
-      log(Level.FINE,
+      log.fine(this,
           () => "Extracted ${activities.length} activity from List config");
 
-      log(Level.FINER, () => "Extracted ${activities}");
+      log.fine(this, () => "Extracted ${activities}");
 
       return activities;
     } else if (activity is Activity<C, E>) {
@@ -89,18 +89,18 @@ class SideEffects<C, E> {
     } else if (activity is String) {
       Activity<C, E> activityObject = getActivity(activity);
 
-      log(Level.FINER, () => "Extracted ${activityObject} from String config");
+      log.finer(this, () => "Extracted ${activityObject} from String config");
 
       return [activityObject];
     }
 
-    log(Level.FINER, () => "No valid activities");
+    log.finer(this, () => "No valid activities");
 
     return [];
   }
 
   Activity<C, E> getActivity(String activity) {
-    if (activities.containsKey(activity)) {
+    if (activities != null && activities.containsKey(activity)) {
       return activities[activity];
     } else if (parent != null) {
       return parent.getActivity(activity);
@@ -111,7 +111,9 @@ class SideEffects<C, E> {
   }
 
   Guard<C, E> getGuard(String guard) {
-    if (guards.containsKey(guard)) {
+    if (guard == null) {
+      return GuardMatches<C, E>();
+    } else if (guards != null && guards.containsKey(guard)) {
       return guards[guard];
     } else if (parent != null) {
       return parent.getGuard(guard);

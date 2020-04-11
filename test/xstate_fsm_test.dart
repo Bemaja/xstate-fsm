@@ -62,13 +62,14 @@ class LightEvent {
 
 void main() {
   Map<String, dynamic> lightConfig = {
+    "strict": true,
     "id": "light",
     "initial": "green",
     "context": {"count": 0, "foo": 'bar', "go": true},
     "states": {
       "green": {
-        "entry": 'enterGreen',
-        "exit": [
+        "onEntry": 'enterGreen',
+        "onExit": [
           "exitGreen",
           "g-a 1",
           "g-a 2",
@@ -83,7 +84,7 @@ void main() {
         }
       },
       "yellow": {
-        "entry": "y-e 1",
+        "onEntry": "y-e 1",
         "on": {
           "INC": {
             "actions": ["y-o 1"]
@@ -125,8 +126,6 @@ void main() {
         (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2)
   });
 
-  debugLog(filterObservables: const [StateNode]);
-
   group('Machine', () {
     test('should return back the config object', () {
       expect(lightFSM.config, equals(lightConfig));
@@ -137,7 +136,8 @@ void main() {
     });
 
     test('should have the correct initial actions', () {
-      expect(lightFSM.initialState.actions, equals([Action('enterGreen')]));
+      expect(lightFSM.initialState.actions,
+          equals([Action<LightContext, LightEvent>('enterGreen')]));
     });
 
     test('should transition correctly', () {
@@ -145,7 +145,7 @@ void main() {
           State<LightContext, LightEvent>(lightFSM.select('green'),
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('TIMER'));
-      expect(nextState.value, equals('yellow'));
+      expect(nextState.value.toStateValue(), equals('yellow'));
       expect(
           nextState.actions,
           equals(
@@ -159,7 +159,7 @@ void main() {
           State<LightContext, LightEvent>(lightFSM.select('green'),
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('FAKE'));
-      expect(nextState.value, equals('green'));
+      expect(nextState.value.toStateValue(), equals('green'));
       expect(nextState.actions, equals([]));
     });
 
@@ -167,28 +167,28 @@ void main() {
       expect(
           () => lightFSM.transition(
               State(lightFSM.select('unknown')), Event('TIMER')),
-          throwsA(isA<AssertionError>()));
+          throwsA(isA<Exception>()));
     });
 
     test('should work with guards', () {
       var yellowState = lightFSM.transition(
           State(lightFSM.select('yellow'), context: LightContext()),
           Event('EMERGENCY', event: LightEvent(0)));
-      expect(yellowState.value, 'yellow');
+      expect(yellowState.value.toStateValue(), 'yellow');
 
       var redState = lightFSM.transition(
           State(lightFSM.select('yellow'), context: LightContext()),
           Event('EMERGENCY', event: LightEvent(2)));
-      expect(redState.value, equals('red'));
+      expect(redState.value.toStateValue(), equals('red'));
       expect(redState.context.count, equals(0));
-
       var yellowOneState = lightFSM.transition(
           State(lightFSM.select('yellow'), context: LightContext()),
           Event('INC', event: LightEvent(0)));
+      stopLog();
       var redOneState = lightFSM.transition(
           yellowOneState, Event('EMERGENCY', event: LightEvent(1)));
 
-      expect(redOneState.value, equals('red'));
+      expect(redOneState.value.toStateValue(), equals('red'));
       expect(redOneState.context.count, equals(1));
     });
 
@@ -316,7 +316,7 @@ void main() {
     Map<String, dynamic> actionConfig = {
       "initial": 'foo',
       "states": {
-        "foo": {"entry": "action"},
+        "foo": {"onEntry": "action"},
       }
     };
 
