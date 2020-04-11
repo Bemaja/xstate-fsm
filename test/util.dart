@@ -2,7 +2,14 @@ import 'package:logging/logging.dart';
 import 'package:stack_trace/stack_trace.dart';
 import 'package:xstate_fsm/xstate_fsm.dart';
 
-void debugLog({List<Type> filterObservables = const []}) {
+/**
+ * Usage:
+ *
+ *      debugLog(filterObservables: ['StateTreeNode<LightContext, LightEvent>']);
+ *      stopLog();
+ */
+
+void debugLog({List<String> filterObservables = const []}) {
   Log.configure(
       level: Level.ALL,
       stackTrace: true,
@@ -21,4 +28,8 @@ void debugLog({List<Type> filterObservables = const []}) {
 //    print(
 //        '${record.level.name}: ${record.time}: ${framePart ?? ''}${record.message}\n');
       });
+}
+
+void stopLog() {
+  Log.configure(level: Level.OFF, stackTrace: false);
 }
