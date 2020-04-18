@@ -1,71 +1,114 @@
-import 'package:equatable/equatable.dart';
-import 'activities.dart';
-import 'event.dart';
+import 'interfaces.dart';
 
-class Action<C, E> extends Equatable {
-  final String type;
-
-  const Action(String this.type);
+class StandardActionFactory<C, E> extends ActionFactory<C, E> {
+  @override
+  ActionStandard<C, E> createSimpleAction(String type) =>
+      ActionStandard<C, E>(type);
 
   @override
-  List<Object> get props => [type];
+  ActionAssign<C, E> createAssignmentAction(ActionAssignment<C, E> action) =>
+      ActionStandardAssign<C, E>(action);
 
   @override
-  String toString() {
-    return "${Action} of \"${type}\"";
-  }
+  ActionExecute<C, E> createExecutionAction(
+          String type, ActionExecution<C, E> action) =>
+      ActionStandardExecute<C, E>(type, action);
+
+  @override
+  Action<C, E> createSendAction(Service<C, E> service) =>
+      ActionStandardSend<C, E>(service);
+
+  @override
+  Action<C, E> createStartActivity(Activity<C, E> activity) =>
+      ActionStandardStartActivity<C, E>(activity);
+
+  @override
+  Action<C, E> createStopActivity(Activity<C, E> activity) =>
+      ActionStandardStopActivity<C, E>(activity);
+
+  @override
+  Action<C, E> createStartService(Service<C, E> service) =>
+      ActionStandardStartService<C, E>(service);
+
+  @override
+  Action<C, E> createStopService(Service<C, E> service) =>
+      ActionStandardStopService<C, E>(service);
 }
 
-typedef ActionExecution<C, E> = Function(C context, Event<E> event);
+class ActionStandard<C, E> extends Action<C, E> {
+  const ActionStandard(type) : super(type);
+}
 
-class ActionExecute<C, E> extends Action<C, E> {
-  final ActionExecution<C, E> exec;
-
-  const ActionExecute(type, ActionExecution<C, E> this.exec) : super(type);
+class ActionStandardExecute<C, E> extends ActionExecute<C, E> {
+  const ActionStandardExecute(type, ActionExecution<C, E> exec)
+      : super(type, exec);
 
   @override
-  List<Object> get props => [type, exec];
-
   execute(C context, Event<E> event) => exec(context, event);
 }
 
-typedef ActionAssignment<C, E> = C Function(C context, Event<E> event);
-
-class ActionAssign<C, E> extends Action<C, E> {
-  final ActionAssignment<C, E> assignment;
-
-  const ActionAssign(this.assignment) : super('xstate.assign');
+class ActionStandardAssign<C, E> extends ActionAssign<C, E> {
+  const ActionStandardAssign(assignment) : super(assignment);
 
   @override
-  List<Object> get props => [type, assignment];
-
   C assign(C context, Event<E> event) => assignment(context, event);
 }
 
-class ActionStart<C, E> extends Action<C, E> {
-  final Activity<C, E> activity;
+class ActionStandardSend<C, E> extends ActionSend<C, E> {
+  const ActionStandardSend(event, to, {delay, id})
+      : super(event, to, delay: delay, id: id);
+}
 
-  const ActionStart(this.activity) : super('xstate.start');
-
-  @override
-  List<Object> get props => [type, activity];
+class ActionStandardStartActivity<C, E> extends ActionStartActivity<C, E> {
+  const ActionStandardStartActivity(activity) : super(activity);
 
   @override
   String toString() {
-    return "${ActionStart}(${activity})";
+    return "${ActionStartActivity}(${activity})";
   }
 }
 
-class ActionStop<C, E> extends Action<C, E> {
-  final Activity<C, E> activity;
-
-  const ActionStop(this.activity) : super('xstate.stop');
-
-  @override
-  List<Object> get props => [type, activity];
+class ActionStandardStopActivity<C, E> extends ActionStopActivity<C, E> {
+  const ActionStandardStopActivity(activity) : super(activity);
 
   @override
   String toString() {
-    return "${ActionStop}(${activity})";
+    return "${ActionStopActivity}(${activity})";
+  }
+}
+
+class ActionStandardStartService<C, E> extends ActionStartService<C, E> {
+  const ActionStandardStartService(service) : super(service);
+
+  @override
+  String toString() {
+    return "${ActionStartService}(${service})";
+  }
+}
+
+class ActionStandardStopService<C, E> extends ActionStopService<C, E> {
+  const ActionStandardStopService(service) : super(service);
+
+  @override
+  String toString() {
+    return "${ActionStopService}(${service})";
+  }
+}
+
+class ActionStandardSendParent<C, E> extends ActionStandardSend<C, E> {
+  const ActionStandardSendParent(event) : super(event, '#_parent');
+
+  @override
+  String toString() {
+    return "${ActionStandardSendParent}(${event})";
+  }
+}
+
+class ActionStandardSendInternal<C, E> extends ActionStandardSend<C, E> {
+  const ActionStandardSendInternal(event) : super(event, '#_internal');
+
+  @override
+  String toString() {
+    return "${ActionStandardSendInternal}(${event})";
   }
 }

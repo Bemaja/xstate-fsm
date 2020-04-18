@@ -1,11 +1,10 @@
-import 'actions.dart';
-import 'event.dart';
-import 'node.dart';
-import 'state.dart';
+import 'interfaces.dart';
 
 enum InterpreterStatus { NotStarted, Running, Stopped }
 
-typedef StateListener<C, E> = Function(State<C, E> state);
+typedef StateListener<C, E> = Function(State<C, E> state, {Event<E> event});
+
+typedef EventListener<E> = Function(Event<E> event);
 
 class Interpreter<C, E> {
   static const INIT_EVENT = Event('xstate.init');
@@ -13,6 +12,7 @@ class Interpreter<C, E> {
   final StateNode<C, E> machine;
   InterpreterStatus _status;
   List<StateListener<C, E>> _listeners = [];
+  List<EventListener<E>> _doneListeners = [];
   State<C, E> _currentState;
 
   Interpreter(StateNode<C, E> this.machine)
@@ -33,7 +33,7 @@ class Interpreter<C, E> {
     }
     _currentState = machine.transition(_currentState, event);
     _executeStateActions(_currentState, event);
-    _listeners.forEach((listener) => listener(_currentState));
+    _listeners.forEach((listener) => listener(_currentState, event: event));
   }
 
   Map<String, Function()> subscribe(StateListener<C, E> listener) {
@@ -41,6 +41,19 @@ class Interpreter<C, E> {
     listener(_currentState);
 
     return {"unsubscribe": () => _listeners.remove(listener)};
+  }
+
+  Interpreter<C, E> onTransition(StateListener<C, E> listener) {
+    _listeners.add(listener);
+    listener(_currentState);
+
+    return this;
+  }
+
+  Interpreter<C, E> onDone(EventListener<E> listener) {
+    _doneListeners.add(listener);
+
+    return this;
   }
 
   Interpreter<C, E> start() {

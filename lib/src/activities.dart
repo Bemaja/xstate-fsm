@@ -1,21 +1,18 @@
-import 'package:equatable/equatable.dart';
+import 'interfaces.dart';
 
-typedef ActivityDisposal = Function();
-typedef ActivityImplementation<C, E> = ActivityDisposal Function(
-    C context, Activity<C, E>);
-
-class Activity<C, E> extends Equatable {
-  final String id;
-  final String type;
+class StandardActivity<C, E> extends Activity<C, E> {
   final ActivityImplementation<C, E> implementation;
 
-  const Activity(this.id, this.implementation, {type}) : this.type = type ?? id;
-
-  @override
-  List<Object> get props => [type, id];
+  const StandardActivity(id, this.implementation, {type})
+      : super(id, type: type);
 
   @override
   String toString() {
-    return "${Activity}(${id}) type:\"${type}\"";
+    return "${StandardActivity}(${id}) type:\"${type}\"";
   }
+}
+
+class StandardActivityFactory<C, E> extends ActivityFactory<C, E> {
+  Activity<C, E> createEmptyActivity(String type) => StandardActivity<C, E>(
+      type, (C context, Activity<C, E> activity) => () => {});
 }

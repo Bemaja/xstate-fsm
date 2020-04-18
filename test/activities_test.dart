@@ -1,11 +1,11 @@
 import 'package:test/test.dart';
 import 'package:xstate_fsm/xstate_fsm.dart';
 
-ActionStart start(String activity) =>
-    ActionStart(Activity(activity, (c, a) => () => {}));
+ActionStartActivity start(String activity) =>
+    ActionStandardStartActivity(StandardActivity(activity, (c, a) => () => {}));
 
-ActionStop stop(String activity) =>
-    ActionStop(Activity(activity, (c, a) => () => {}));
+ActionStopActivity stop(String activity) =>
+    ActionStandardStopActivity(StandardActivity(activity, (c, a) => () => {}));
 
 void main() {
   var machine = Setup().machine({
@@ -35,7 +35,11 @@ void main() {
         }
       }
     }
-  });
+  }, activities: [
+    StandardActivity('fadeInGreen', (c, a) => () => {}),
+    StandardActivity('activateCrosswalkLight', (c, a) => () => {}),
+    StandardActivity('blinkCrosswalkLight', (c, a) => () => {})
+  ]);
 
   group("Activities", () {
     test("initial state has initial activities", () {

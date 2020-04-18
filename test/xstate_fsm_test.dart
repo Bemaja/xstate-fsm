@@ -98,32 +98,33 @@ void main() {
 
   var lightFSM = Setup<LightContext, LightEvent>()
       .machine(lightConfig, contextFactory: LightContextFactory(), actions: {
-    "enterGreen": Action<LightContext, LightEvent>("enterGreen"),
-    "exitGreen": Action<LightContext, LightEvent>("exitGreen"),
-    "g-y 1": Action<LightContext, LightEvent>("g-y 1"),
-    "g-y 2": Action<LightContext, LightEvent>("g-y 2")
+    "enterGreen": ActionStandard<LightContext, LightEvent>("enterGreen"),
+    "exitGreen": ActionStandard<LightContext, LightEvent>("exitGreen"),
+    "g-y 1": ActionStandard<LightContext, LightEvent>("g-y 1"),
+    "g-y 2": ActionStandard<LightContext, LightEvent>("g-y 2")
   }, assignments: {
-    "g-a 1": ActionAssign<LightContext, LightEvent>(
+    "g-a 1": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
             LightContext(count: c.count + 1, foo: c.foo, go: c.go)),
-    "g-a 2": ActionAssign<LightContext, LightEvent>(
+    "g-a 2": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
             LightContext(count: c.count + 1, foo: c.foo, go: c.go)),
-    "g-a 3": ActionAssign<LightContext, LightEvent>(
+    "g-a 3": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
             LightContext(count: c.count, foo: 'static', go: c.go)),
-    "g-a 4": ActionAssign<LightContext, LightEvent>(
+    "g-a 4": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
             LightContext(count: c.count, foo: c.foo + '++', go: c.go)),
-    "y-e 1": ActionAssign<LightContext, LightEvent>(
+    "y-e 1": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
             LightContext(count: c.count, foo: c.foo, go: false)),
-    "y-o 1": ActionAssign<LightContext, LightEvent>(
+    "y-o 1": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
             LightContext(count: c.count + 1, foo: c.foo, go: c.go))
   }, guards: {
-    "y-g 1": GuardConditional<LightContext, LightEvent>("y-g 1",
-        (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2)
+    "y-g 1": GuardConditional<LightContext, LightEvent>(
+        (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2,
+        type: "y-g 1")
   });
 
   group('Machine', () {
@@ -137,12 +138,12 @@ void main() {
 
     test('should have the correct initial actions', () {
       expect(lightFSM.initialState.actions,
-          equals([Action<LightContext, LightEvent>('enterGreen')]));
+          equals([ActionStandard<LightContext, LightEvent>('enterGreen')]));
     });
 
     test('should transition correctly', () {
       var nextState = lightFSM.transition(
-          State<LightContext, LightEvent>(lightFSM.select('green'),
+          StandardState<LightContext, LightEvent>(lightFSM.select('green'),
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('TIMER'));
       expect(nextState.value.toStateValue(), equals('yellow'));
@@ -156,7 +157,7 @@ void main() {
 
     test('should stay on the same state for undefined transitions', () {
       var nextState = lightFSM.transition(
-          State<LightContext, LightEvent>(lightFSM.select('green'),
+          StandardState<LightContext, LightEvent>(lightFSM.select('green'),
               context: LightContext(count: 0, foo: 'bar', go: true)),
           Event('FAKE'));
       expect(nextState.value.toStateValue(), equals('green'));
@@ -166,23 +167,23 @@ void main() {
     test('should throw an error for undefined states', () {
       expect(
           () => lightFSM.transition(
-              State(lightFSM.select('unknown')), Event('TIMER')),
+              StandardState(lightFSM.select('unknown')), Event('TIMER')),
           throwsA(isA<Exception>()));
     });
 
     test('should work with guards', () {
       var yellowState = lightFSM.transition(
-          State(lightFSM.select('yellow'), context: LightContext()),
+          StandardState(lightFSM.select('yellow'), context: LightContext()),
           Event('EMERGENCY', event: LightEvent(0)));
       expect(yellowState.value.toStateValue(), 'yellow');
 
       var redState = lightFSM.transition(
-          State(lightFSM.select('yellow'), context: LightContext()),
+          StandardState(lightFSM.select('yellow'), context: LightContext()),
           Event('EMERGENCY', event: LightEvent(2)));
       expect(redState.value.toStateValue(), equals('red'));
       expect(redState.context.count, equals(0));
       var yellowOneState = lightFSM.transition(
-          State(lightFSM.select('yellow'), context: LightContext()),
+          StandardState(lightFSM.select('yellow'), context: LightContext()),
           Event('INC', event: LightEvent(0)));
       stopLog();
       var redOneState = lightFSM.transition(
@@ -196,7 +197,8 @@ void main() {
       expect(
           lightFSM
               .transition(
-                  State(lightFSM.select('green'), context: LightContext()),
+                  StandardState(lightFSM.select('green'),
+                      context: LightContext()),
                   Event('TIMER'))
               .changed,
           equals(true));
@@ -206,7 +208,8 @@ void main() {
       expect(
           lightFSM
               .transition(
-                  State(lightFSM.select('yellow'), context: LightContext()),
+                  StandardState(lightFSM.select('yellow'),
+                      context: LightContext()),
                   Event('INC'))
               .changed,
           equals(true));
@@ -216,7 +219,8 @@ void main() {
       expect(
           lightFSM
               .transition(
-                  State(lightFSM.select('yellow'), context: LightContext()),
+                  StandardState(lightFSM.select('yellow'),
+                      context: LightContext()),
                   Event('UNKNOWN'))
               .changed,
           equals(false));
@@ -253,7 +257,7 @@ void main() {
     test('listeners should immediately get the initial state', () {
       var toggleService = Interpreter(toggleMachine).start();
 
-      toggleService.subscribe((state) {
+      toggleService.subscribe((state, {event}) {
         expect(state.matches('active'), equals(true));
       });
     });
@@ -263,7 +267,7 @@ void main() {
 
       var count = 0;
 
-      toggleService.subscribe((state) {
+      toggleService.subscribe((state, {event}) {
         count += 1;
         if (count == 2) {
           expect(state.matches('inactive'), equals(true));
@@ -293,14 +297,14 @@ void main() {
     };
 
     var actionMachine = Setup().machine(actionConfig, executions: {
-      "action": ActionExecute("action", (context, event) {
+      "action": ActionStandardExecute("action", (context, event) {
         executed = true;
       })
     });
 
     var actionService = Interpreter(actionMachine).start();
 
-    actionService.subscribe((state) {
+    actionService.subscribe((state, {event}) {
       count += 1;
       if (count == 2) {
         expect(executed, equals(true));
@@ -321,7 +325,7 @@ void main() {
     };
 
     var actionMachine = Setup().machine(actionConfig, executions: {
-      "action": ActionExecute("action", (context, event) {
+      "action": ActionStandardExecute("action", (context, event) {
         executed = true;
       })
     });

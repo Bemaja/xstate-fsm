@@ -1,8 +1,7 @@
 import 'src/actions.dart';
 import 'src/activities.dart';
-import 'src/context.dart';
-import 'src/event.dart';
 import 'src/guards.dart';
+import 'src/interfaces.dart';
 import 'src/interpreter.dart';
 import 'src/log.dart';
 import 'src/node.dart';
@@ -14,9 +13,8 @@ import 'src/tree.dart';
 
 export 'src/actions.dart';
 export 'src/activities.dart';
-export 'src/context.dart';
-export 'src/event.dart';
 export 'src/guards.dart';
+export 'src/interfaces.dart';
 export 'src/interpreter.dart';
 export 'src/log.dart';
 export 'src/node.dart';
