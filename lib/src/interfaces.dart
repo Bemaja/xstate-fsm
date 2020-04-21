@@ -6,14 +6,71 @@ import 'package:equatable/equatable.dart';
  *
  *****************************/
 
-class Event<E> {
-  final String type;
-  final E event;
+enum EventType { platform, internal, external }
 
-  const Event(this.type, {this.event});
+abstract class InternalEvent {
+  const InternalEvent();
+}
+
+abstract class PlatformEvent {
+  const PlatformEvent();
+}
+
+abstract class EventData {
+  final EventType type;
+
+  const EventData(this.type);
+}
+
+class ExternalEventData<E> extends EventData {
+  final E externalEvent;
+
+  const ExternalEventData(this.externalEvent) : super(EventType.external);
+}
+
+class InternalEventData extends EventData {
+  final InternalEvent internalEvent;
+
+  const InternalEventData(this.internalEvent) : super(EventType.internal);
+}
+
+class PlatformEventData extends EventData {
+  final PlatformEvent platformEvent;
+
+  const PlatformEventData(this.platformEvent) : super(EventType.platform);
+}
+
+class Event<E> {
+  final String name;
+  final EventData data;
+
+  const Event(this.name, {ExternalEventData<E> this.data});
+
+  const Event.internal(this.name, InternalEventData this.data);
+
+  const Event.platform(this.name, PlatformEventData this.data);
+
+  EventType get type => data == null ? EventType.external : data.type;
+
+  E get externalEvent {
+    EventData _data = data;
+    if (_data is ExternalEventData<E>) {
+      return _data.externalEvent;
+    }
+    return null;
+  }
 
   @override
-  String toString() => "${Event}(${type})";
+  String toString() => "${Event}(${type}:${name})";
+}
+
+class DoneEvent extends InternalEvent {
+  final dynamic data;
+
+  const DoneEvent({this.data});
+
+  @override
+  String toString() => "${DoneEvent}";
 }
 
 /*****************************
@@ -25,7 +82,7 @@ class Event<E> {
 typedef ActionExecution<C, E> = Function(C context, Event<E> event);
 typedef ActionAssignment<C, E> = C Function(C context, Event<E> event);
 
-abstract class Action<C, E> extends Equatable {
+abstract class Action extends Equatable {
   final String type;
 
   const Action(String this.type);
@@ -39,7 +96,7 @@ abstract class Action<C, E> extends Equatable {
   }
 }
 
-abstract class ActionExecute<C, E> extends Action<C, E> {
+abstract class ActionExecute<C, E> extends Action {
   final ActionExecution<C, E> exec;
 
   const ActionExecute(type, ActionExecution<C, E> this.exec) : super(type);
@@ -50,7 +107,7 @@ abstract class ActionExecute<C, E> extends Action<C, E> {
   execute(C context, Event<E> event);
 }
 
-abstract class ActionAssign<C, E> extends Action<C, E> {
+abstract class ActionAssign<C, E> extends Action {
   final ActionAssignment<C, E> assignment;
 
   const ActionAssign(this.assignment) : super('xstate.assign');
@@ -61,7 +118,7 @@ abstract class ActionAssign<C, E> extends Action<C, E> {
   C assign(C context, Event<E> event);
 }
 
-abstract class ActionSend<C, E> extends Action<C, E> {
+abstract class ActionSend<E> extends Action {
   final Event<E> event;
   final String to;
   final String _id;
@@ -77,7 +134,7 @@ abstract class ActionSend<C, E> extends Action<C, E> {
   List<Object> get props => [type, _id, to, event];
 }
 
-abstract class ActionRaise<C, E> extends Action<C, E> {
+abstract class ActionRaise<C, E> extends Action {
   final String event;
 
   const ActionRaise(this.event) : super('xstate.raise');
@@ -86,7 +143,7 @@ abstract class ActionRaise<C, E> extends Action<C, E> {
   List<Object> get props => [type, event];
 }
 
-abstract class ActionStartActivity<C, E> extends Action<C, E> {
+abstract class ActionStartActivity<C, E> extends Action {
   final Activity<C, E> activity;
 
   const ActionStartActivity(this.activity) : super('xstate.start');
@@ -95,7 +152,7 @@ abstract class ActionStartActivity<C, E> extends Action<C, E> {
   List<Object> get props => [type, activity];
 }
 
-abstract class ActionStopActivity<C, E> extends Action<C, E> {
+abstract class ActionStopActivity<C, E> extends Action {
   final Activity<C, E> activity;
 
   const ActionStopActivity(this.activity) : super('xstate.stop');
@@ -104,7 +161,7 @@ abstract class ActionStopActivity<C, E> extends Action<C, E> {
   List<Object> get props => [type, activity];
 }
 
-abstract class ActionStartService<C, E> extends Action<C, E> {
+abstract class ActionStartService<C, E> extends Action {
   final Service<C, E> service;
 
   const ActionStartService(this.service) : super('xstate.start');
@@ -113,7 +170,7 @@ abstract class ActionStartService<C, E> extends Action<C, E> {
   List<Object> get props => [type, service];
 }
 
-abstract class ActionStopService<C, E> extends Action<C, E> {
+abstract class ActionStopService<C, E> extends Action {
   final Service<C, E> service;
 
   const ActionStopService(this.service) : super('xstate.stop');
@@ -122,23 +179,16 @@ abstract class ActionStopService<C, E> extends Action<C, E> {
   List<Object> get props => [type, service];
 }
 
-abstract class ActionSendParent<C, E> extends Action<C, E> {
-  final Event<E> event;
-
-  const ActionSendParent(this.event) : super('xstate.send');
-
-  @override
-  List<Object> get props => [type, event];
-}
-
 abstract class ActionFactory<C, E> {
-  Action<C, E> createSimpleAction(String type);
-  Action<C, E> createAssignmentAction(ActionAssignment<C, E> action);
-  Action<C, E> createExecutionAction(String type, ActionExecution<C, E> action);
-  Action<C, E> createStartActivity(Activity<C, E> activity);
-  Action<C, E> createStopActivity(Activity<C, E> activity);
-  Action<C, E> createStartService(Service<C, E> service);
-  Action<C, E> createStopService(Service<C, E> service);
+  Action createSimpleAction(String type);
+  Action createAssignmentAction(ActionAssignment<C, E> action);
+  Action createExecutionAction(String type, ActionExecution<C, E> action);
+  Action createStartActivity(Activity<C, E> activity);
+  Action createStopActivity(Activity<C, E> activity);
+  Action createStartService(Service<C, E> service);
+  Action createStopService(Service<C, E> service);
+  Action createSendAction(Event<E> event, String to, {num delay, String id});
+  Action createDoneAction(String id, dynamic data);
 }
 
 /*****************************
@@ -186,7 +236,7 @@ abstract class Service<C, E> extends HasId {
 
 abstract class Transition<C, E> {
   final LazyAccess<StateNode<C, E>> getTarget;
-  final List<Action<C, E>> actions;
+  final List<Action> actions;
 
   const Transition({this.getTarget, this.actions});
 
@@ -220,7 +270,7 @@ abstract class GuardFactory<C, E> {
 
 abstract class State<C, E> {
   final StateTreeNode<C, E> value;
-  final List<Action<C, E>> actions;
+  final List<Action> actions;
   final C context;
   final bool changed;
   final Map<String, bool> activities;
@@ -239,8 +289,10 @@ abstract class State<C, E> {
 abstract class StateFactory<C, E> {
   State<C, E> createFromStateTreeNode(StateTreeNode<C, E> treeNode);
   State<C, E> createState(
-      StateTreeNode<C, E> tree, List<Action<C, E>> actions, C context,
-      {Map<String, bool> activities = const {}, List<Service<C, E>> children});
+      StateTreeNode<C, E> tree, List<Action> actions, C context,
+      {Map<String, bool> activities = const {},
+      List<Service<C, E>> children,
+      bool changed = false});
 }
 
 /*****************************
@@ -281,8 +333,9 @@ abstract class StateTreeType<C, E> {
 
   bool get isLeaf;
   bool get isFinal;
+  bool get hasTransientTransition;
 
-  List<Action<C, E>> collectPotentialDoneEvents(C context);
+  dynamic getDoneData(C context);
 }
 
 abstract class StateTreeLeaf<C, E> extends StateTreeType<C, E> {
@@ -303,6 +356,8 @@ abstract class StateTreeNode<C, E> {
 
   const StateTreeNode(this.node, this.type);
 
+  List<Action> collectPotentialDoneEvents(C context);
+
   dynamic toStateValue();
 
   Transition<C, E> resolveTransition(State<C, E> state, Event<E> event);
@@ -310,6 +365,8 @@ abstract class StateTreeNode<C, E> {
   List<String> toAscii({num level = 0});
 
   bool get isLeaf;
+
+  bool get hasTransientTransition;
 
   bool matches(StateNode<C, E> matchingNode);
 
@@ -365,14 +422,15 @@ abstract class StateNode<C, E> {
   final Map<String, dynamic> config;
 
   final Map<String, List<Transition<C, E>>> transitions;
-  final List<Action<C, E>> onEntry;
-  final List<Action<C, E>> onExit;
+  final List<Action> onEntry;
+  final List<Action> onExit;
   final List<Activity<C, E>> onActive;
-  final List<Action<C, E>> onActiveStart;
-  final List<Action<C, E>> onActiveStop;
+  final List<Action> onActiveStart;
+  final List<Action> onActiveStop;
   final List<Service<C, E>> services;
-  final List<Action<C, E>> onServiceStart;
-  final List<Action<C, E>> onServiceStop;
+  final List<Action> onServiceStart;
+  final List<Action> onServiceStop;
+  final dynamic data;
   final StateTreeType<C, E> initialStateTree;
 
   final NodeType<C, E> type;
@@ -394,6 +452,7 @@ abstract class StateNode<C, E> {
       this.services = const [],
       this.onServiceStart = const [],
       this.onServiceStop = const [],
+      this.data,
       this.initialStateTree = null,
       this.context = null});
 
@@ -401,7 +460,9 @@ abstract class StateNode<C, E> {
 
   bool get isFinal;
 
-  Action<C, E> operator [](String action);
+  bool get hasTransientTransition;
+
+  Action operator [](String action);
 
   StateTreeNode<C, E> get initialStateTreeNode;
 
@@ -420,14 +481,15 @@ abstract class StateNode<C, E> {
 
   State<C, E> get initialState;
 
-  Action<C, E> onDone(C context);
+  Action raiseDone(dynamic data);
 }
 
 abstract class SideEffects<C, E> {
   const SideEffects();
 
   /* Node actions */
-  Action<C, E> operator [](String action);
+  Action operator [](String action);
+  Action createDone(String id, dynamic data);
 
   /* Parent actions */
   Guard<C, E> getGuard(dynamic guard);
@@ -438,7 +500,7 @@ abstract class SideEffects<C, E> {
   void requireContext();
 
   /* Setup actions */
-  List<Action<C, E>> getActions(dynamic action);
+  List<Action> getActions(dynamic action);
   List<Activity<C, E>> getActivities(dynamic activity);
   List<Service<C, E>> getServices(dynamic service);
 }
@@ -463,6 +525,10 @@ abstract class Validation {
 typedef LazyAccess<T> = T Function();
 
 typedef LazyMapAccess<T> = T Function(String key);
+
+abstract class DataMapper<C> {
+  dynamic call(C context);
+}
 
 abstract class HasId extends Equatable {
   final String id;

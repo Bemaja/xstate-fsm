@@ -31,6 +31,13 @@ class Log {
     return Logger(observed.runtimeType.toString());
   }
 
+  void severe(dynamic observed, LogMessage message,
+      {Map<String, dynamic> data}) {
+    if (Logger.root.isLoggable(Level.SEVERE)) {
+      getLogger(observed).fine(() => LogObject(observed, message, data));
+    }
+  }
+
   void fine(dynamic observed, LogMessage message, {Map<String, dynamic> data}) {
     if (Logger.root.isLoggable(Level.FINE)) {
       getLogger(observed).fine(() => LogObject(observed, message, data));

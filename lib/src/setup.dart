@@ -29,7 +29,7 @@ class Setup<C, E> {
   StateNode<C, E> machine(Map<String, dynamic> config,
       {ContextFactory<C> contextFactory,
       C initialContext,
-      Map<String, Action<C, E>> actions,
+      Map<String, Action> actions,
       Map<String, ActionExecute<C, E>> executions,
       Map<String, ActionAssign<C, E>> assignments,
       List<Activity<C, E>> activities,
@@ -110,19 +110,15 @@ class Setup<C, E> {
 
     List<String> path = parentTreeAccess.path + [type.key];
 
-    if (type.isFinal && !(treeAccess.parent.type is NodeTypeCompound<C, E>)) {
-      validation.reportError(
-          "Final node ${path} can only be child of a compound node!",
-          data: {"type": type, "parent": treeAccess.parent});
-    }
-
     String stateDelimiter = config['delimiter'] ??
         (parentTreeAccess.hasParent ? parentTreeAccess.parent.delimiter : '.');
+
+    String id =
+        (config['id'] ?? path.join(stateDelimiter) ?? "(machine)") as String;
 
     List<Service<C, E>> services = config.containsKey('invoke')
         ? configureServices(config['invoke'], sideEffects, treeAccess)
         : List<Service<C, E>>();
-
     Map<String, List<Transition<C, E>>> serviceTransitions = services.fold(
         Map<String, List<Transition<C, E>>>(),
         (transitionMap, service) => {...transitionMap, ...service.transitions});
@@ -130,6 +126,15 @@ class Setup<C, E> {
     Map<String, List<Transition<C, E>>> configTransitions = config['on'] != null
         ? configureTransitions(config['on'], sideEffects, treeAccess)
         : Map<String, List<Transition<C, E>>>();
+
+    Map<String, List<Transition<C, E>>> doneTransitions =
+        config['onDone'] != null
+            ? <String, List<Transition<C, E>>>{
+                "done.state.${id}": [
+                  configureTransition(config['onDone'], sideEffects, treeAccess)
+                ]
+              }
+            : <String, List<Transition<C, E>>>{};
 
     List<Activity<C, E>> activities = config.containsKey('activities')
         ? sideEffects.getActivities(config['activities'])
@@ -139,35 +144,37 @@ class Setup<C, E> {
         config: config,
         delimiter: stateDelimiter,
         path: path,
-        id: (config['id'] ?? path.join(stateDelimiter) ?? "(machine)")
-            as String,
+        id: id,
         type: type,
         tree: treeAccess,
-        transitions: {...configTransitions, ...serviceTransitions},
+        transitions: {
+          ...configTransitions,
+          ...doneTransitions,
+          ...serviceTransitions
+        },
         onEntry: config.containsKey('onEntry')
             ? sideEffects.getActions(config['onEntry'])
-            : List<Action<C, E>>(),
+            : List<Action>(),
         onExit: config.containsKey('onExit')
             ? sideEffects.getActions(config['onExit'])
-            : List<Action<C, E>>(),
+            : List<Action>(),
         onActive: activities,
         onActiveStart: activities
-            .map<Action<C, E>>(
+            .map<Action>(
                 (activity) => actionFactory.createStartActivity(activity))
             .toList(),
         onActiveStop: activities
-            .map<Action<C, E>>(
+            .map<Action>(
                 (activity) => actionFactory.createStopActivity(activity))
             .toList(),
         services: services,
         onServiceStart: services
-            .map<Action<C, E>>(
-                (service) => actionFactory.createStartService(service))
+            .map<Action>((service) => actionFactory.createStartService(service))
             .toList(),
         onServiceStop: services
-            .map<Action<C, E>>(
-                (service) => actionFactory.createStopService(service))
+            .map<Action>((service) => actionFactory.createStopService(service))
             .toList(),
+        data: config["data"],
         initialStateTree: type.selectStateTree(key: config["initial"]),
         sideEffects: sideEffects,
         context: initialContext);
@@ -243,6 +250,13 @@ class Setup<C, E> {
         : const {};
 
     if (type == "parallel") {
+      substates.values.forEach((StateNode<C, E> node) {
+        if (node.type.isFinal) {
+          validation.reportError(
+              "Final node ${node.path} cannot be child of a parallel node!");
+        }
+      });
+
       return NodeTypeParallel(nodeKey, treeFactory, states: substates);
     }
     return NodeTypeCompound(nodeKey, treeFactory, states: substates);
@@ -274,17 +288,17 @@ class Setup<C, E> {
         return sideEffects.getServices(service['src']);
       } else if (service['src'] is Future) {
         return [
-          ServiceFuture<dynamic, C, E>(service['id'], service['src'],
+          ServiceFuture<C, E>(service['id'], service['src'],
               onDone: onDone, onError: onError)
         ];
-      } else if (service['src'] is StateNode<C, E>) {
+      } else if (service['src'] is StateNode) {
         return [
-          ServiceMachine<C, E, C, E>(service['id'], service['src'],
+          ServiceMachine<C, E>(service['id'], service['src'],
               onDone: onDone, onError: onError)
         ];
       } else if (service['src'] is Map<String, dynamic>) {
         return [
-          ServiceMachine<C, E, C, E>(service['id'], machine(service['src']),
+          ServiceMachine<C, E>(service['id'], machine(service['src']),
               onDone: onDone, onError: onError)
         ];
       }
@@ -297,11 +311,11 @@ class Setup<C, E> {
       transitions.map<String, List<Transition<C, E>>>((String key,
               dynamic transition) =>
           MapEntry<String, List<Transition<C, E>>>(
-              key,
+              key == '' ? null : key,
               transition is List
                   ? transition
-                      .map<Transition<C, E>>((t) =>
-                          configureTransition(t, sideEffects, treeAccess))
+                      .map<Transition<C, E>>(
+                          (t) => configureTransition(t, sideEffects, treeAccess))
                       .toList()
                   : [configureTransition(transition, sideEffects, treeAccess)]));
 
@@ -318,7 +332,7 @@ class Setup<C, E> {
         actions: (transition is Map<String, dynamic> &&
                 transition['actions'] != null)
             ? sideEffects.getActions(transition['actions'])
-            : List<Action<C, E>>(),
+            : List<Action>(),
         condition:
             (transition is Map<String, dynamic> && transition['cond'] != null)
                 ? sideEffects.getGuard(transition['cond'])

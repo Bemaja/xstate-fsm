@@ -8,20 +8,23 @@ class ActionCollector<C, E> {
 
   const ActionCollector(this.tree, {this.log = const Log()});
 
-  List<Action<C, E>> get onEntry =>
-      tree.walkStateTree<Action<C, E>>((StateTreeNode<C, E> treeNode) {
+  List<Action> onEntry(C context) =>
+      tree.walkStateTree<Action>((StateTreeNode<C, E> treeNode) {
         log.finest(
             this,
             () =>
                 "Collecting entry actions ${treeNode.node.onEntry} on ${treeNode.node}");
-        return treeNode.node.onEntry;
+        return treeNode.node.onEntry +
+            treeNode.node.onActiveStart +
+            collectPotentialDoneEvents(context) +
+            treeNode.node.onServiceStart;
       });
 
-  List<Action<C, E>> collectPotentialDoneEvents(C context) =>
-      tree.walkStateTree<Action<C, E>>((StateTreeNode<C, E> treeNode) =>
-          treeNode.type.collectPotentialDoneEvents(context));
+  List<Action> collectPotentialDoneEvents(C context) =>
+      tree.walkStateTree<Action>((StateTreeNode<C, E> treeNode) =>
+          treeNode.collectPotentialDoneEvents(context));
 
-  List<Action<C, E>> get onExit => tree.walkStateTree<Action<C, E>>(
+  List<Action> get onExit => tree.walkStateTree<Action>(
       (StateTreeNode<C, E> treeNode) => treeNode.node.onExit);
 
   List<Activity<C, E>> get activities => tree.walkStateTree<Activity<C, E>>(
@@ -30,9 +33,8 @@ class ActionCollector<C, E> {
   List<Service<C, E>> get services => tree.walkStateTree<Service<C, E>>(
       (StateTreeNode<C, E> treeNode) => treeNode.node.services);
 
-  List<Action<C, E>> entriesFromTransition(
-          StateTreeNode<C, E> oldTree, C context) =>
-      tree.walkStateTree<Action<C, E>>((StateTreeNode<C, E> treeNode) {
+  List<Action> entriesFromTransition(StateTreeNode<C, E> oldTree, C context) =>
+      tree.walkStateTree<Action>((StateTreeNode<C, E> treeNode) {
         if (oldTree.hasBranch(treeNode.node)) {
           log.finer(
               this,
@@ -40,10 +42,10 @@ class ActionCollector<C, E> {
                   "${treeNode.node} was active before -> not entering and collecting entry actions");
           return [];
         } else {
-          List<Action<C, E>> onEntry = treeNode.node.onEntry;
-          List<Action<C, E>> onActive = treeNode.node.onActiveStart;
-          List<Action<C, E>> onDone = collectPotentialDoneEvents(context);
-          List<Action<C, E>> services = treeNode.node.onServiceStart;
+          List<Action> onEntry = treeNode.node.onEntry;
+          List<Action> onActive = treeNode.node.onActiveStart;
+          List<Action> onDone = collectPotentialDoneEvents(context);
+          List<Action> services = treeNode.node.onServiceStart;
 
           log.finer(this,
               () => "Collected entry actions ${onEntry} on ${treeNode.node}");
@@ -62,8 +64,8 @@ class ActionCollector<C, E> {
         }
       });
 
-  List<Action<C, E>> exitsFromTransition(StateTreeNode<C, E> oldTree) =>
-      oldTree.walkStateTree<Action<C, E>>((StateTreeNode<C, E> treeNode) =>
+  List<Action> exitsFromTransition(StateTreeNode<C, E> oldTree) =>
+      oldTree.walkStateTree<Action>((StateTreeNode<C, E> treeNode) =>
           tree.hasBranch(treeNode.node)
               ? []
               : treeNode.node.onExit +
@@ -89,7 +91,14 @@ class StandardStateTreeLeaf<C, E> extends StateTreeLeaf<C, E> {
 
   @override
   bool get isLeaf => true;
+
+  @override
   bool get isFinal => false;
+
+  @override
+  bool get hasTransientTransition => false;
+
+  dynamic getDoneData(C context) => null;
 
   bool hasBranch(StateNode<C, E> matchingNode) => false;
 
@@ -111,7 +120,14 @@ class StandardStateTreeParallel<C, E> extends StateTreeParallel<C, E> {
 
   const StandardStateTreeParallel(this.children, {this.log = const Log()});
 
+  @override
   bool get isFinal => children.every((child) => child.node.isFinal);
+
+  @override
+  bool get hasTransientTransition =>
+      children.any((child) => child.hasTransientTransition);
+
+  dynamic getDoneData(C context) => null;
 
   // TODO: implement
   @override
@@ -163,16 +179,15 @@ class StandardStateTreeCompound<C, E> extends StateTreeCompound<C, E> {
 
   const StandardStateTreeCompound(this.child, {this.log = const Log()});
 
+  @override
   bool get isFinal => child.node.isFinal;
 
   @override
-  List<Action<C, E>> collectPotentialDoneEvents(C context) {
-    if (isFinal) {
-      log.finest(this, () => "Reached final state, eliciting ${node.onDone}");
-      return [child.node.onDone(context)];
-    }
-    return [];
-  }
+  bool get hasTransientTransition => child.hasTransientTransition;
+
+  dynamic getDoneData(C context) => child.node.data is DataMapper<C>
+      ? child.node.data(context)
+      : child.node.data;
 
   // TODO: implement
   @override
@@ -221,6 +236,16 @@ class StandardStateTreeNode<C, E> extends StateTreeNode<C, E> {
       : super(node, type);
 
   @override
+  List<Action> collectPotentialDoneEvents(C context) {
+    if (type.isFinal) {
+      Action done = node.raiseDone(type.getDoneData(context));
+      log.finest(this, () => "Reached final state, eliciting ${done}");
+      return [done];
+    }
+    return <Action>[];
+  }
+
+  @override
   List<T> walkStateTree<T>(StateTreeWalk<T, C, E> walker) {
     log.finest(this, () => "Walk tree delivering node ${node} to walker");
     return walker(this) + type.walkStateTree<T>(walker);
@@ -236,44 +261,61 @@ class StandardStateTreeNode<C, E> extends StateTreeNode<C, E> {
   State<C, E> state({C context}) {
     ActionCollector<C, E> collector = ActionCollector(this);
     log.finer(this, () => "Collected initial actions ${collector.onEntry}");
-    return stateFactory.createState(this, collector.onEntry, context,
+    return stateFactory.createState(this, collector.onEntry(context), context,
         activities: {for (var a in collector.activities) a.type: true});
   }
 
-  State<C, E> _buildNewState(StateTreeNode<C, E> tree,
-      List<Action<C, E>> actions, C oldContext, Event<E> event,
+  State<C, E> _buildNewState(StateTreeNode<C, E> tree, List<Action> actions,
+      C oldContext, Event<E> event,
       {Map<String, bool> activities = const {}, List<Service<C, E>> children}) {
     return stateFactory.createState(
         tree,
         actions.where((action) => !(action is ActionAssign<C, E>)).toList(),
-        actions.fold<C>(oldContext, (C oldContext, Action<C, E> action) {
-          log.finest(this, () => "Applying $action if it is an assignment");
+        actions.fold<C>(oldContext, (C oldContext, Action action) {
           if (action is ActionAssign<C, E>) {
+            log.finest(
+                this, () => "Applying $action since it is an assignment");
             return action.assign(oldContext, event);
           } else {
             return oldContext;
           }
         }),
         activities: activities,
-        children: children);
+        children: children,
+        changed: !actions.isEmpty ||
+            actions.fold<bool>(false, (bool changed, Action action) {
+              print(action.toString());
+              return changed || (action is ActionAssign<C, E>);
+            }));
+  }
+
+  State<C, E> _microTransition(State<C, E> state, Event<E> originalEvent,
+      {Event<E> event}) {
+    State<C, E> newState = this.transition(state, event);
+
+    return _buildNewState(newState.value, state.actions + newState.actions,
+        newState.context, originalEvent,
+        activities: newState.activities, children: newState.children);
   }
 
   @override
   State<C, E> transition(State<C, E> state, Event<E> event) {
     Transition<C, E> targetTransition = resolveTransition(state, event);
+    State<C, E> newState;
 
     if (targetTransition is NoTransition) {
       log.fine(this, () => "Resolved to NO TRANSITION in response to ${event}");
       return _buildNewState(state.value, [], state.context, event,
           activities: state.activities, children: state.children);
-    } else {
-      if (targetTransition.getTarget == null) {
-        log.fine(this, () => "Resolved to NO TRANSITION as getTarget is Null");
+    }
 
-        return _buildNewState(
-            state.value, targetTransition.actions, state.context, event,
-            activities: state.activities, children: state.children);
-      }
+    if (targetTransition.getTarget == null) {
+      log.fine(this, () => "Resolved to NO TRANSITION as getTarget is Null");
+
+      newState = _buildNewState(
+          state.value, targetTransition.actions, state.context, event,
+          activities: state.activities, children: state.children);
+    } else {
       StateNode<C, E> entryNode = targetTransition.getTarget();
 
       if (entryNode == null) {
@@ -281,46 +323,58 @@ class StandardStateTreeNode<C, E> extends StateTreeNode<C, E> {
 
         return _buildNewState(
             state.value, targetTransition.actions, state.context, event);
+      } else {
+        log.fine(
+            this,
+            () =>
+                "Selected target node ${entryNode} for entering after transition");
+
+        StateTreeNode<C, E> entryTree =
+            entryNode.transitionFromTree(state.value);
+
+        log.fine(
+            this, () => "Resolved to \n${entryTree}\n in response to ${event}");
+
+        ActionCollector<C, E> actionCollector =
+            ActionCollector<C, E>(entryTree);
+        List<Action> entryActions =
+            actionCollector.entriesFromTransition(state.value, state.context);
+        List<Action> exitActions =
+            actionCollector.exitsFromTransition(state.value);
+
+        log.finer(
+            this,
+            () =>
+                "Entry actions ${entryActions} collected from \n${entryTree}\n in response to ${event}");
+        log.finer(
+            this,
+            () =>
+                "Exit actions ${exitActions} collected from \n${entryTree}\n in response to ${event}");
+
+        List<Action> allActions =
+            exitActions + targetTransition.actions + entryActions;
+
+        log.finer(this, () => "Previous activities were ${state.activities}");
+        log.finer(
+            this, () => "New activities are ${actionCollector.activities}");
+
+        newState = _buildNewState(entryTree, allActions, state.context, event,
+            activities: {
+              for (var a in state.activities.keys) a: false,
+              for (var b in actionCollector.activities) b.type: true
+            },
+            children: actionCollector.services);
       }
-
-      log.fine(
-          this,
-          () =>
-              "Selected target node ${entryNode} for entering after transition");
-
-      StateTreeNode<C, E> entryTree = entryNode.transitionFromTree(state.value);
-
-      log.fine(
-          this, () => "Resolved to \n${entryTree}\n in response to ${event}");
-
-      ActionCollector<C, E> actionCollector = ActionCollector<C, E>(entryTree);
-      List<Action<C, E>> entryActions =
-          actionCollector.entriesFromTransition(state.value, state.context);
-      List<Action<C, E>> exitActions =
-          actionCollector.exitsFromTransition(state.value);
-
-      log.finer(
-          this,
-          () =>
-              "Entry actions ${entryActions} collected from \n${entryTree}\n in response to ${event}");
-      log.finer(
-          this,
-          () =>
-              "Exit actions ${exitActions} collected from \n${entryTree}\n in response to ${event}");
-
-      List<Action<C, E>> allActions =
-          exitActions + targetTransition.actions + entryActions;
-
-      log.finer(this, () => "Previous activities were ${state.activities}");
-      log.finer(this, () => "New activities are ${actionCollector.activities}");
-
-      return _buildNewState(entryTree, allActions, state.context, event,
-          activities: {
-            for (var a in state.activities.keys) a: false,
-            for (var b in actionCollector.activities) b.type: true
-          },
-          children: actionCollector.services);
     }
+
+    log.finer(this, () => "Handling potential micro transitions");
+
+    if (!state.value.type.isFinal && state.value.hasTransientTransition) {
+      log.finer(this, () => "Handling potential transient transition");
+      newState = _microTransition(newState, event);
+    }
+
+    return newState;
   }
 
   @override
@@ -343,6 +397,10 @@ class StandardStateTreeNode<C, E> extends StateTreeNode<C, E> {
 
   @override
   bool get isLeaf => type is StateTreeLeaf<C, E>;
+
+  @override
+  bool get hasTransientTransition =>
+      node.hasTransientTransition || type.hasTransientTransition;
 
   dynamic toOptionalStateValue() => isLeaf ? node.key : toStateValue();
 

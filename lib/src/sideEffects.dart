@@ -4,7 +4,7 @@ import 'log.dart';
 class StandardSideEffects<C, E> extends SideEffects<C, E> {
   final SideEffects<C, E> parent;
 
-  final Map<String, Action<C, E>> actions;
+  final Map<String, Action> actions;
   final Map<String, ActionExecute<C, E>> executions;
   final Map<String, ActionAssign<C, E>> assignments;
   final Map<String, Activity<C, E>> activities;
@@ -31,16 +31,14 @@ class StandardSideEffects<C, E> extends SideEffects<C, E> {
       this.validation,
       this.log = const Log()});
 
-  List<Action<C, E>> getActions(dynamic action) {
+  List<Action> getActions(dynamic action) {
     log.finer(this, () => "Fetching action ${action}");
 
     if (action == null) {
       return [];
     } else if (action is List) {
-      return action
-          .expand<Action<C, E>>((single) => getActions(single))
-          .toList();
-    } else if (action is Action<C, E>) {
+      return action.expand<Action>((single) => getActions(single)).toList();
+    } else if (action is Action) {
       return [action];
     } else if (action is ActionExecution<C, E>) {
       return [actionFactory.createExecutionAction(action.toString(), action)];
@@ -59,7 +57,7 @@ class StandardSideEffects<C, E> extends SideEffects<C, E> {
     return [];
   }
 
-  Action<C, E> getAction(String action) {
+  Action getAction(String action) {
     if (actions != null && actions.containsKey(action)) {
       return actions[action];
     } else if (executions != null && executions.containsKey(action)) {
@@ -77,7 +75,7 @@ class StandardSideEffects<C, E> extends SideEffects<C, E> {
     return actionFactory.createSimpleAction(action);
   }
 
-  Action<C, E> operator [](String action) => getAction(action);
+  Action operator [](String action) => getAction(action);
 
   List<Activity<C, E>> getActivities(dynamic activity) {
     log.finer(this, () => "Extracting activities from ${activity}");
@@ -187,6 +185,9 @@ class StandardSideEffects<C, E> extends SideEffects<C, E> {
 
     return guardFactory.createMatchingGuard();
   }
+
+  Action createDone(String id, dynamic data) =>
+      actionFactory.createDoneAction(id, data);
 
   void reportError(String message, {Map<String, dynamic> data}) {
     if (parent != null) {

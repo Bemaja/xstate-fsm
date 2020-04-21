@@ -33,18 +33,16 @@ class StandardStateFactory<C, E> extends StateFactory<C, E> {
       StandardState<C, E>(treeNode);
 
   State<C, E> createState(
-      StateTreeNode<C, E> tree, List<Action<C, E>> actions, C context,
-      {Map<String, bool> activities = const {}, List<Service<C, E>> children}) {
+      StateTreeNode<C, E> tree, List<Action> actions, C context,
+      {Map<String, bool> activities = const {},
+      List<Service<C, E>> children,
+      bool changed = false}) {
     return StandardState(tree,
         context: context,
         actions:
             actions.where((action) => !(action is ActionAssign<C, E>)).toList(),
         activities: activities,
         children: children,
-        changed: !actions.isEmpty ||
-            actions.fold<bool>(
-                false,
-                (bool changed, Action<C, E> action) =>
-                    changed || (action is ActionAssign)));
+        changed: changed);
   }
 }

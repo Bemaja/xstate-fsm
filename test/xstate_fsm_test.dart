@@ -98,10 +98,10 @@ void main() {
 
   var lightFSM = Setup<LightContext, LightEvent>()
       .machine(lightConfig, contextFactory: LightContextFactory(), actions: {
-    "enterGreen": ActionStandard<LightContext, LightEvent>("enterGreen"),
-    "exitGreen": ActionStandard<LightContext, LightEvent>("exitGreen"),
-    "g-y 1": ActionStandard<LightContext, LightEvent>("g-y 1"),
-    "g-y 2": ActionStandard<LightContext, LightEvent>("g-y 2")
+    "enterGreen": ActionStandard("enterGreen"),
+    "exitGreen": ActionStandard("exitGreen"),
+    "g-y 1": ActionStandard("g-y 1"),
+    "g-y 2": ActionStandard("g-y 2")
   }, assignments: {
     "g-a 1": ActionStandardAssign<LightContext, LightEvent>(
         (LightContext c, Event<LightEvent> e) =>
@@ -123,7 +123,8 @@ void main() {
             LightContext(count: c.count + 1, foo: c.foo, go: c.go))
   }, guards: {
     "y-g 1": GuardConditional<LightContext, LightEvent>(
-        (LightContext c, Event<LightEvent> e) => c.count + e.event.value == 2,
+        (LightContext c, Event<LightEvent> e) =>
+            c.count + e.externalEvent.value == 2,
         type: "y-g 1")
   });
 
@@ -138,7 +139,7 @@ void main() {
 
     test('should have the correct initial actions', () {
       expect(lightFSM.initialState.actions,
-          equals([ActionStandard<LightContext, LightEvent>('enterGreen')]));
+          equals([ActionStandard('enterGreen')]));
     });
 
     test('should transition correctly', () {
@@ -174,20 +175,24 @@ void main() {
     test('should work with guards', () {
       var yellowState = lightFSM.transition(
           StandardState(lightFSM.select('yellow'), context: LightContext()),
-          Event('EMERGENCY', event: LightEvent(0)));
+          Event('EMERGENCY',
+              data: ExternalEventData<LightEvent>(LightEvent(0))));
       expect(yellowState.value.toStateValue(), 'yellow');
 
       var redState = lightFSM.transition(
           StandardState(lightFSM.select('yellow'), context: LightContext()),
-          Event('EMERGENCY', event: LightEvent(2)));
+          Event('EMERGENCY',
+              data: ExternalEventData<LightEvent>(LightEvent(2))));
       expect(redState.value.toStateValue(), equals('red'));
       expect(redState.context.count, equals(0));
       var yellowOneState = lightFSM.transition(
           StandardState(lightFSM.select('yellow'), context: LightContext()),
-          Event('INC', event: LightEvent(0)));
+          Event('INC', data: ExternalEventData<LightEvent>(LightEvent(0))));
       stopLog();
       var redOneState = lightFSM.transition(
-          yellowOneState, Event('EMERGENCY', event: LightEvent(1)));
+          yellowOneState,
+          Event('EMERGENCY',
+              data: ExternalEventData<LightEvent>(LightEvent(1))));
 
       expect(redOneState.value.toStateValue(), equals('red'));
       expect(redOneState.context.count, equals(1));

@@ -44,6 +44,7 @@ class StandardStateNode<C, E> extends StateNode<C, E> {
       services = const [],
       onServiceStart = const [],
       onServiceStop = const [],
+      data,
       initialStateTree = null,
       context = null,
       this.strict = false,
@@ -65,6 +66,7 @@ class StandardStateNode<C, E> extends StateNode<C, E> {
             services: services,
             onServiceStart: onServiceStart,
             onServiceStop: onServiceStop,
+            data: data,
             initialStateTree: initialStateTree,
             context: context);
 
@@ -75,7 +77,7 @@ class StandardStateNode<C, E> extends StateNode<C, E> {
   bool get isFinal => type.isFinal;
 
   @override
-  Action<C, E> operator [](String action) => sideEffects[action];
+  Action operator [](String action) => sideEffects[action];
 
   @override
   String get key => type.key;
@@ -195,23 +197,41 @@ class StandardStateNode<C, E> extends StateNode<C, E> {
 
   @override
   Transition<C, E> next(State<C, E> state, Event<E> event) {
-    var matchingTransitions = _getTransitionFor(event).skipWhile(
-        (transition) => transition.doesNotMatch(state.context, event));
+    var matchingTransitions = _getTransitionFor(event).skipWhile((transition) {
+      bool doesNotMatch = transition.doesNotMatch(state.context, event);
+      log.finest(
+          this,
+          () =>
+              "Transition $transition ${doesNotMatch ? 'does not match' : 'matches'} context ${state.context} and event ${event}");
+      return doesNotMatch;
+    });
+    log.fine(this, () => "${matchingTransitions.length} matching transitions");
     if (!matchingTransitions.isEmpty) {
+      log.fine(this, () => "Returning first transition");
       return matchingTransitions.first;
     }
+    log.fine(this, () => "Returning no transitions");
     return NoTransition<C, E>();
   }
 
+  @override
+  bool get hasTransientTransition => transitions.containsKey(null);
+
   List<Transition<C, E>> _getTransitionFor(Event<E> event) {
-    if (!transitions.containsKey(event.type)) {
+    if (event == null) {
+      if (hasTransientTransition) {
+        log.fine(this, () => "Returning transient transition");
+        return transitions[event];
+      }
       return <Transition<C, E>>[];
     }
-    return transitions[event.type];
+    if (!transitions.containsKey(event.name)) {
+      return <Transition<C, E>>[];
+    }
+    return transitions[event.name];
   }
 
-  @override
-  Action<C, E> onDone(C context) => 
+  Action raiseDone(dynamic data) => sideEffects.createDone(id, data);
 
   @override
   String toString() => "${StateNode}(${id})";

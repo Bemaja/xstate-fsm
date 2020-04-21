@@ -5,6 +5,8 @@ import 'dart:async';
 class CountContext {
   final num count;
   const CountContext({this.count = 0});
+
+  String toString() => "Count: $count";
 }
 
 void main() {
@@ -52,8 +54,9 @@ void main() {
                 CountContext(count: context.count + 1))
       }, initialContext: CountContext()))
           .onTransition((state, {event}) {
-        print('HERE1');
+        print('HERE1: ${event}');
         count = state.context.count;
+        print(state.value.type.isFinal);
       }).onDone((event) {
         // 1. The 'parent' machine will enter 'start' state
         // 2. The 'child' service will be run with ID 'someService'

@@ -11,8 +11,8 @@ class ServiceBase<C, E> extends Service<C, E> {
       {...onDone, ...onError};
 }
 
-class ServiceFuture<F, C, E> extends ServiceBase<C, E> {
-  final Future<F> future;
+class ServiceFuture<C, E> extends ServiceBase<C, E> {
+  final Future future;
 
   const ServiceFuture(id, this.future, {onDone, onError})
       : super(id, onDone: onDone, onError: onError);
@@ -23,8 +23,8 @@ class ServiceFuture<F, C, E> extends ServiceBase<C, E> {
   }
 }
 
-class ServiceMachine<SC, SE, C, E> extends ServiceBase<C, E> {
-  final StateNode<SC, SE> machine;
+class ServiceMachine<C, E> extends ServiceBase<C, E> {
+  final StateNode machine;
 
   const ServiceMachine(id, this.machine, {onDone, onError})
       : super(id, onDone: onDone, onError: onError);

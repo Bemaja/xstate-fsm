@@ -2,8 +2,7 @@ import 'interfaces.dart';
 
 class StandardActionFactory<C, E> extends ActionFactory<C, E> {
   @override
-  ActionStandard<C, E> createSimpleAction(String type) =>
-      ActionStandard<C, E>(type);
+  ActionStandard createSimpleAction(String type) => ActionStandard(type);
 
   @override
   ActionAssign<C, E> createAssignmentAction(ActionAssignment<C, E> action) =>
@@ -15,27 +14,32 @@ class StandardActionFactory<C, E> extends ActionFactory<C, E> {
       ActionStandardExecute<C, E>(type, action);
 
   @override
-  Action<C, E> createSendAction(Service<C, E> service) =>
-      ActionStandardSend<C, E>(service);
+  Action createSendAction(Event<E> event, String to, {num delay, String id}) =>
+      ActionStandardSend<E>(event, to, delay: delay, id: id);
 
   @override
-  Action<C, E> createStartActivity(Activity<C, E> activity) =>
+  Action createDoneAction(String id, dynamic data) =>
+      ActionStandardSendDone(Event.internal(
+          "done.state.${id}", InternalEventData(DoneEvent(data: data))));
+
+  @override
+  Action createStartActivity(Activity<C, E> activity) =>
       ActionStandardStartActivity<C, E>(activity);
 
   @override
-  Action<C, E> createStopActivity(Activity<C, E> activity) =>
+  Action createStopActivity(Activity<C, E> activity) =>
       ActionStandardStopActivity<C, E>(activity);
 
   @override
-  Action<C, E> createStartService(Service<C, E> service) =>
+  Action createStartService(Service<C, E> service) =>
       ActionStandardStartService<C, E>(service);
 
   @override
-  Action<C, E> createStopService(Service<C, E> service) =>
+  Action createStopService(Service<C, E> service) =>
       ActionStandardStopService<C, E>(service);
 }
 
-class ActionStandard<C, E> extends Action<C, E> {
+class ActionStandard extends Action {
   const ActionStandard(type) : super(type);
 }
 
@@ -54,8 +58,8 @@ class ActionStandardAssign<C, E> extends ActionAssign<C, E> {
   C assign(C context, Event<E> event) => assignment(context, event);
 }
 
-class ActionStandardSend<C, E> extends ActionSend<C, E> {
-  const ActionStandardSend(event, to, {delay, id})
+class ActionStandardSend<E> extends ActionSend<E> {
+  const ActionStandardSend(Event<E> event, to, {delay, id})
       : super(event, to, delay: delay, id: id);
 }
 
@@ -95,8 +99,8 @@ class ActionStandardStopService<C, E> extends ActionStopService<C, E> {
   }
 }
 
-class ActionStandardSendParent<C, E> extends ActionStandardSend<C, E> {
-  const ActionStandardSendParent(event) : super(event, '#_parent');
+class ActionStandardSendParent<C, E> extends ActionStandardSend<E> {
+  const ActionStandardSendParent(Event<E> event) : super(event, '#_parent');
 
   @override
   String toString() {
@@ -104,11 +108,20 @@ class ActionStandardSendParent<C, E> extends ActionStandardSend<C, E> {
   }
 }
 
-class ActionStandardSendInternal<C, E> extends ActionStandardSend<C, E> {
-  const ActionStandardSendInternal(event) : super(event, '#_internal');
+class ActionStandardSendInternal<E> extends ActionStandardSend<E> {
+  const ActionStandardSendInternal(Event<E> event) : super(event, '#_internal');
 
   @override
   String toString() {
     return "${ActionStandardSendInternal}(${event})";
+  }
+}
+
+class ActionStandardSendDone<E> extends ActionStandardSendInternal<E> {
+  const ActionStandardSendDone(Event<E> event) : super(event);
+
+  @override
+  String toString() {
+    return "${ActionStandardSendDone}(${event})";
   }
 }
