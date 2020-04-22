@@ -1,8 +1,8 @@
 name: xstate_fsm
-version: 0.0.1
+version: 0.0.2
 description: >
-  A shameless copy of the Typescript package xstate-fsm
-  (https://github.com/davidkpiano/xstate/tree/master/packages/xstate-fsm)
+  A rudimentary copy of XState
+  (https://xstate.js.org/)
 homepage: https://github.com/Bemaja/xstate-fsm
 
 dependencies:
